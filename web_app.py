@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import html
 import json
@@ -11,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 
 from automailer.campaign import CampaignConfig, run_campaign
 from automailer.planner import PlanConfig, build_send_queue
+from automailer.word_template import load_word_template_bytes
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -25,6 +27,7 @@ DEFAULTS = {
     "timeline": "outbox/web_dashboard_timeline.jsonl",
     "campaign_id": "web-dashboard-demo",
     "queue_output": "outbox/web_dashboard_queue.csv",
+    "approval_output": "outbox/web_dashboard_approval.csv",
     "outbox": "outbox",
 }
 
@@ -68,6 +71,12 @@ def make_handler():
                 result = _handle_message_flow(payload)
                 self._json_response(200, result)
                 return
+            if parsed.path == "/api/approval":
+                query = parse_qs(parsed.query)
+                path = _safe_path(query.get("path", [DEFAULTS["approval_output"]])[0])
+                rows = _read_csv(path)
+                self._json_response(200, {"rows": rows, "path": _relative(path), "counts": _count_approval(rows)})
+                return
             if parsed.path == "/api/progress":
                 self._json_response(200, {"markdown": _read_text(BASE_DIR / "docs" / "progress.md")})
                 return
@@ -92,6 +101,18 @@ def make_handler():
                     return
                 if parsed.path == "/api/message-flow/save":
                     result = _handle_save_message_flow(payload)
+                    self._json_response(200, result)
+                    return
+                if parsed.path == "/api/word-template/import":
+                    result = _handle_import_word_template(payload)
+                    self._json_response(200, result)
+                    return
+                if parsed.path == "/api/approval/prepare":
+                    result = _handle_prepare_approval(payload)
+                    self._json_response(200, result)
+                    return
+                if parsed.path == "/api/approval/save":
+                    result = _handle_save_approval(payload)
                     self._json_response(200, result)
                     return
                 self._json_response(404, {"ok": False, "error": "not found"})
@@ -247,6 +268,7 @@ def _handle_save_message_flow(payload: dict[str, object]) -> dict[str, object]:
         if isinstance(step, dict)
     }
     seen_templates: dict[str, tuple[str, str]] = {}
+    config_changed = False
 
     for raw_step in saved_steps:
         if not isinstance(raw_step, dict):
@@ -268,21 +290,107 @@ def _handle_save_message_flow(payload: dict[str, object]) -> dict[str, object]:
             raise ValueError(f"{template_name}: same mail name is used with different content.")
         seen_templates[template_name] = template_signature
 
-        _write_template(template_name, subject, text_body)
         step = steps_by_id[step_id]
-        step["template"] = template_name
+        current_template = str(step.get("template") or "").strip()
+        if current_template != template_name:
+            step["template"] = template_name
+            config_changed = True
+
+        current_template_content = _template_payload(template_name)
+        if (
+            current_template_content["subject"].strip() != subject
+            or current_template_content["text_body"].replace("\r\n", "\n").strip() != text_body.strip()
+        ):
+            _write_template(template_name, subject, text_body)
 
         delay = str(raw_step.get("next_send_after_days") or "").strip()
         if delay:
             delay_days = int(delay)
             if delay_days < 0:
                 raise ValueError(f"{step_id}: delay days cannot be negative.")
-            step["next_send_after_days"] = delay_days
+            if step.get("next_send_after_days") != delay_days:
+                step["next_send_after_days"] = delay_days
+                config_changed = True
         else:
-            step.pop("next_send_after_days", None)
+            if "next_send_after_days" in step:
+                step.pop("next_send_after_days", None)
+                config_changed = True
 
-    funnel_path.write_text(json.dumps(funnel, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if config_changed:
+        funnel_path.write_text(json.dumps(funnel, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return _handle_message_flow(config)
+
+
+def _handle_import_word_template(payload: dict[str, object]) -> dict[str, object]:
+    filename = str(payload.get("filename") or "").strip()
+    encoded = str(payload.get("content_base64") or "").strip()
+    if not filename:
+        raise ValueError("filename is required.")
+    if not encoded:
+        raise ValueError("word file content is required.")
+
+    content = base64.b64decode(encoded, validate=True)
+    if len(content) > 5_000_000:
+        raise ValueError("Word file is too large. Use a file under 5 MB.")
+
+    template = load_word_template_bytes(filename, content)
+    return {
+        "ok": True,
+        "filename": filename,
+        "subject": template.subject,
+        "text_body": template.text_body,
+        "html_body": template.html_body,
+    }
+
+
+def _handle_prepare_approval(payload: dict[str, object]) -> dict[str, object]:
+    config = _request_config(payload)
+    plan = _handle_plan(config)
+    approval_path = _safe_path(config["approval_output"])
+    previous = {
+        _approval_key(row): str(row.get("approved") or "").strip().lower()
+        for row in _read_csv(approval_path)
+    }
+    approval_rows = [
+        _approval_row(row, approved=previous.get(_approval_key(row), "no"))
+        for row in plan["rows"]
+        if row.get("status") == "ready"
+    ]
+    _write_approval(approval_path, approval_rows)
+    return {
+        "ok": True,
+        "path": _relative(approval_path),
+        "rows": approval_rows,
+        "counts": _count_approval(approval_rows),
+        "queue_counts": plan["counts"],
+    }
+
+
+def _handle_save_approval(payload: dict[str, object]) -> dict[str, object]:
+    config = _request_config(payload)
+    approval_path = _safe_path(config["approval_output"])
+    updates = payload.get("rows")
+    if not isinstance(updates, list):
+        raise ValueError("rows must be a list.")
+
+    approval_rows = _read_csv(approval_path)
+    approved_by_key = {
+        _approval_key(row): "yes" if row.get("approved") in (True, "true", "yes", "1", "on") else "no"
+        for row in updates
+        if isinstance(row, dict)
+    }
+    for row in approval_rows:
+        key = _approval_key(row)
+        if key in approved_by_key:
+            row["approved"] = approved_by_key[key]
+
+    _write_approval(approval_path, approval_rows)
+    return {
+        "ok": True,
+        "path": _relative(approval_path),
+        "rows": approval_rows,
+        "counts": _count_approval(approval_rows),
+    }
 
 
 def _request_config(payload: dict[str, object]) -> dict[str, str]:
@@ -364,6 +472,36 @@ def _count_statuses(rows: list[dict[str, str]]) -> dict[str, int]:
     return counts
 
 
+def _approval_row(row: dict[str, str], *, approved: str) -> dict[str, str]:
+    return {
+        "approved": "yes" if approved in {"yes", "true", "1", "on"} else "no",
+        "email": row.get("email", ""),
+        "template": row.get("template", ""),
+        "rule": row.get("rule", ""),
+        "campaign_step": row.get("campaign_step", ""),
+        "next_send_at": row.get("next_send_at", ""),
+        "detail": row.get("detail", ""),
+    }
+
+
+def _approval_key(row: dict[str, object]) -> str:
+    return f"{str(row.get('email') or '').strip().lower()}|{str(row.get('template') or '').strip()}"
+
+
+def _write_approval(path: Path, rows: list[dict[str, str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = ["approved", "email", "template", "rule", "campaign_step", "next_send_at", "detail"]
+    with path.open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _count_approval(rows: list[dict[str, str]]) -> dict[str, int]:
+    approved = sum(1 for row in rows if str(row.get("approved") or "").strip().lower() == "yes")
+    return {"ready": len(rows), "approved": approved, "waiting": len(rows) - approved}
+
+
 def _message_flow_steps(funnel: dict[str, object]) -> list[dict[str, object]]:
     raw_steps = funnel.get("steps", [])
     if not isinstance(raw_steps, list):
@@ -380,6 +518,7 @@ def _message_flow_steps(funnel: dict[str, object]) -> list[dict[str, object]]:
             {
                 "id": step_id,
                 "order": index,
+                "stage_label": _stage_label(raw_step, index),
                 "priority": raw_step.get("priority", ""),
                 "audience": _describe_conditions(raw_step.get("conditions")),
                 "template": template_name,
@@ -455,6 +594,58 @@ def _describe_conditions(value: object) -> str:
     parts = [_describe_condition(condition) for condition in value if isinstance(condition, dict)]
     visible_parts = [part for part in parts if part]
     return ", ".join(visible_parts) if visible_parts else "전체 고객"
+
+
+def _stage_label(step: dict[str, object], index: int) -> str:
+    conditions = step.get("conditions")
+    stage_id = str(step.get("id") or step.get("name") or "").strip()
+    attendance = _condition_value(conditions, "attendance", "equals")
+    campaign_step = _condition_value(conditions, "campaign_step", "equals")
+    is_first_touch = _has_condition(conditions, "campaign_step", "is_empty")
+
+    if attendance and is_first_touch:
+        return f"{attendance} 고객 첫 메일"
+    if campaign_step:
+        return f"{_humanise_identifier(campaign_step)} 단계 메일"
+    if stage_id:
+        return _humanise_identifier(stage_id)
+    return f"단계 {index}"
+
+
+def _condition_value(conditions: object, field: str, operator: str) -> str:
+    if not isinstance(conditions, list):
+        return ""
+    for condition in conditions:
+        if (
+            isinstance(condition, dict)
+            and str(condition.get("field") or "") == field
+            and str(condition.get("operator") or "equals") == operator
+        ):
+            return str(condition.get("value") or "").strip()
+    return ""
+
+
+def _has_condition(conditions: object, field: str, operator: str) -> bool:
+    if not isinstance(conditions, list):
+        return False
+    return any(
+        isinstance(condition, dict)
+        and str(condition.get("field") or "") == field
+        and str(condition.get("operator") or "equals") == operator
+        for condition in conditions
+    )
+
+
+def _humanise_identifier(value: str) -> str:
+    cleaned = value.replace("_", " ").replace("-", " ").strip()
+    labels = {
+        "attended first touch": "참석 고객 첫 메일",
+        "attended second touch": "참석 고객 두 번째 메일",
+        "attended complete": "참석 고객 완료",
+        "no show first touch": "미참석 고객 첫 메일",
+        "no show second touch": "미참석 고객 두 번째 메일",
+    }
+    return labels.get(cleaned.lower(), cleaned or value)
 
 
 def _describe_condition(condition: dict[str, object]) -> str:
@@ -1830,6 +2021,80 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       color: var(--muted);
       white-space: nowrap;
     }
+    .stage-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin-bottom: 14px;
+      background: #fff;
+    }
+    .stage-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--soft);
+      border-radius: 8px 8px 0 0;
+    }
+    .stage-head strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 16px;
+    }
+    .stage-head span {
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .stage-grid {
+      display: grid;
+      grid-template-columns: minmax(260px, 36%) minmax(0, 1fr);
+      gap: 14px;
+      padding: 14px;
+    }
+    .stage-section-title {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .stage-list {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      background: #fff;
+    }
+    .stage-list-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 9px;
+      border-bottom: 1px solid var(--line);
+    }
+    .stage-list-row:last-child {
+      border-bottom: 0;
+    }
+    .stage-list-row b {
+      overflow-wrap: anywhere;
+      font-size: 13px;
+    }
+    .stage-list-row small {
+      display: block;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .message-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-top: 10px;
+    }
+    .file-name {
+      color: var(--muted);
+      font-size: 12px;
+    }
     .form-grid {
       display: grid;
       grid-template-columns: 1fr 130px;
@@ -1854,6 +2119,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       .layout > .panel { margin-bottom: 14px; }
       .message-head { display: block; }
       .message-head span { display: block; margin-top: 4px; white-space: normal; }
+      .stage-grid { grid-template-columns: 1fr; }
     }
     @media (max-width: 620px) {
       .steps, .cards, .form-grid { grid-template-columns: 1fr; }
@@ -1870,7 +2136,8 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       <div class="actions">
         <button id="planBtn">받을 사람 확인</button>
         <button id="dryRunBtn" class="primary">메일 미리보기 만들기</button>
-        <button id="saveFlowBtn">메일 흐름 저장</button>
+        <button id="prepareApprovalBtn">발송 승인 준비</button>
+        <button id="saveFlowBtn">단계별 메일 저장</button>
         <button id="refreshBtn">화면 새로고침</button>
       </div>
     </header>
@@ -1878,7 +2145,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     <section class="steps">
       <div class="step"><strong>1. 명단 선택</strong><span>폼 응답이나 엑셀 명단을 불러옵니다.</span></div>
       <div class="step"><strong>2. 받을 사람 확인</strong><span>지금 보낼 사람과 제외할 사람을 나눕니다.</span></div>
-      <div class="step"><strong>3. 메일 흐름 확인</strong><span>고객 유형마다 다른 메일을 연결합니다.</span></div>
+      <div class="step"><strong>3. 단계별 메일 작성</strong><span>퍼널 단계마다 명단과 메일 내용을 따로 확인합니다.</span></div>
       <div class="step"><strong>4. 미리보기</strong><span>실제 발송 전 결과 파일을 만듭니다.</span></div>
     </section>
 
@@ -1891,7 +2158,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
 
     <section class="layout">
       <aside class="panel">
-        <h2>이번 메일 흐름</h2>
+        <h2>퍼널 단계</h2>
         <div class="panel-body">
           <div id="flowSummary" class="flow-list"></div>
           <details>
@@ -1906,6 +2173,8 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
             <input id="campaign_id">
             <label for="queue_output">받을 사람 확인 파일</label>
             <input id="queue_output">
+            <label for="approval_output">발송 승인 파일</label>
+            <input id="approval_output">
             <label for="timeline">고객별 기록 파일</label>
             <input id="timeline">
           </details>
@@ -1915,8 +2184,9 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
 
       <section class="panel">
         <div class="tabs">
-          <button class="tab active" data-tab="people">받을 사람</button>
-          <button class="tab" data-tab="flow">메일 흐름</button>
+          <button class="tab active" data-tab="people">명단 확인</button>
+          <button class="tab" data-tab="flow">단계별 메일</button>
+          <button class="tab" data-tab="approval">발송 승인</button>
           <button class="tab" data-tab="preview">미리보기 결과</button>
           <button class="tab" data-tab="history">고객별 기록</button>
           <button class="tab" data-tab="state">고객 상태</button>
@@ -1925,6 +2195,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
         <div class="panel-body">
           <div id="peopleTab"></div>
           <div id="flowTab" hidden></div>
+          <div id="approvalTab" hidden></div>
           <div id="previewTab" hidden></div>
           <div id="historyTab" hidden></div>
           <div id="stateTab" hidden></div>
@@ -1935,7 +2206,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
   </main>
 
   <script>
-    const fields = ["contacts", "funnel_config", "lead_state", "campaign_id", "queue_output", "timeline"];
+    const fields = ["contacts", "funnel_config", "lead_state", "campaign_id", "queue_output", "approval_output", "timeline"];
     const statusLabels = {
       ready: "보낼 예정",
       sent: "미리보기 완료",
@@ -1947,6 +2218,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     let previewRows = [];
     let flowSteps = [];
     let templates = [];
+    let approvalRows = [];
 
     function formData() {
       const data = {};
@@ -1962,8 +2234,9 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     }
 
     function busy(value) {
-      for (const id of ["planBtn", "dryRunBtn", "saveFlowBtn", "refreshBtn"]) {
-        document.getElementById(id).disabled = value;
+      for (const id of ["planBtn", "dryRunBtn", "prepareApprovalBtn", "saveFlowBtn", "refreshBtn"]) {
+        const element = document.getElementById(id);
+        if (element) element.disabled = value;
       }
     }
 
@@ -2049,7 +2322,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
 
       summary.innerHTML = flowSteps.map(step => `
         <div class="flow-item">
-          <b>${safe(step.order)}. ${safe(step.audience)}</b>
+          <b>${safe(step.order)}. ${safe(step.stage_label || step.audience)}</b>
           <span>${safe(step.template)} · ${safe(step.send_after_label)}</span>
         </div>`).join("");
 
@@ -2057,26 +2330,52 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       document.getElementById("flowTab").innerHTML = `
         <datalist id="templateNames">${options}</datalist>
         ${flowSteps.map((step, index) => `
-          <section class="message-row" data-index="${index}">
-            <div class="message-head">
-              <strong>${safe(step.order)}. ${safe(step.audience)}</strong>
+          <section class="stage-card message-row" data-index="${index}">
+            <div class="stage-head">
+              <div>
+                <strong>${safe(step.order)}. ${safe(step.stage_label || step.audience)}</strong>
+                <span>${safe(step.audience)}</span>
+              </div>
               <span>${safe(step.send_after_label)}</span>
             </div>
-            <div class="form-grid">
+            <div class="stage-grid">
               <div>
-                <label>메일 이름</label>
-                <input data-flow-field="template" list="templateNames" value="${safe(step.template)}">
+                <p class="stage-section-title">이 단계의 명단</p>
+                ${stagePeopleHtml(step)}
               </div>
               <div>
-                <label>다음 메일까지</label>
-                <input data-flow-field="next_send_after_days" type="number" min="0" value="${safe(step.next_send_after_days)}">
+                <p class="stage-section-title">이 단계에서 보낼 메일</p>
+                <div class="form-grid">
+                  <div>
+                    <label>메일 이름</label>
+                    <input data-flow-field="template" list="templateNames" value="${safe(step.template)}">
+                  </div>
+                  <div>
+                    <label>다음 메일까지</label>
+                    <input data-flow-field="next_send_after_days" type="number" min="0" value="${safe(step.next_send_after_days)}">
+                  </div>
+                </div>
+                <label>제목</label>
+                <input data-flow-field="subject" value="${safe(step.subject)}">
+                <label>본문</label>
+                <textarea data-flow-field="text_body">${safe(step.text_body)}</textarea>
+                <div class="message-tools">
+                  <button data-action="import-word" type="button">Word 파일 불러오기</button>
+                  <span class="file-name" data-flow-field="word_name">선택된 Word 파일 없음</span>
+                  <input data-flow-field="word_file" type="file" accept=".docx" hidden>
+                </div>
               </div>
             </div>
-            <label>제목</label>
-            <input data-flow-field="subject" value="${safe(step.subject)}">
-            <label>본문</label>
-            <textarea data-flow-field="text_body">${safe(step.text_body)}</textarea>
           </section>`).join("")}`;
+
+      for (const button of document.querySelectorAll('[data-action="import-word"]')) {
+        button.addEventListener("click", event => {
+          event.currentTarget.closest(".message-row").querySelector('[data-flow-field="word_file"]').click();
+        });
+      }
+      for (const input of document.querySelectorAll('[data-flow-field="word_file"]')) {
+        input.addEventListener("change", importWordFile);
+      }
     }
 
     function collectFlow() {
@@ -2091,6 +2390,124 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
           subject: value("subject"),
           text_body: value("text_body")
         };
+      });
+    }
+
+    function stageRows(step) {
+      return peopleRows.filter(row =>
+        row.rule === step.id ||
+        (step.template && row.template === step.template) ||
+        row.campaign_step === step.id
+      );
+    }
+
+    function stagePeopleHtml(step) {
+      const rows = stageRows(step);
+      if (!rows.length) {
+        return "<p class='note'>이 단계에 표시할 명단이 아직 없습니다.</p>";
+      }
+      const shown = rows.slice(0, 8).map(row => `
+        <div class="stage-list-row">
+          <div>
+            <b>${safe(row.email)}</b>
+            <small>${safe(row.detail || row.campaign_step || "")}</small>
+          </div>
+          ${badge(row.status)}
+        </div>`).join("");
+      const extra = rows.length > 8 ? `<p class="note">외 ${rows.length - 8}명 더 있음</p>` : "";
+      return `<div class="stage-list">${shown}</div>${extra}`;
+    }
+
+    function showApproval() {
+      const target = document.getElementById("approvalTab");
+      if (!approvalRows.length) {
+        target.innerHTML = `
+          <p class="note">아직 승인할 메일이 없습니다. 먼저 받을 사람을 확인한 뒤 발송 승인 준비를 누르세요.</p>
+          <button type="button" id="prepareApprovalInTabBtn">발송 승인 준비</button>`;
+        document.getElementById("prepareApprovalInTabBtn").addEventListener("click", prepareApproval);
+        return;
+      }
+
+      const approvedCount = approvalRows.filter(row => row.approved === "yes").length;
+      target.innerHTML = `
+        <div class="message-tools">
+          <button type="button" id="approveAllBtn">전체 승인</button>
+          <button type="button" id="clearApprovalBtn">전체 해제</button>
+          <button type="button" class="primary" id="saveApprovalBtn">승인 목록 저장</button>
+          <span class="file-name">승인 ${approvedCount}건 / 대기 ${approvalRows.length}건</span>
+        </div>
+        <table>
+          <thead><tr><th>승인</th><th>받는 사람</th><th>보낼 메일</th><th>단계</th><th>상세</th></tr></thead>
+          <tbody>
+            ${approvalRows.map((row, index) => `
+              <tr>
+                <td><input type="checkbox" data-approval-index="${index}" ${row.approved === "yes" ? "checked" : ""}></td>
+                <td>${safe(row.email)}</td>
+                <td>${safe(row.template)}</td>
+                <td>${safe(stageLabelForRow(row))}</td>
+                <td>${safe(row.detail || "")}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>`;
+      document.getElementById("approveAllBtn").addEventListener("click", () => setApprovalChecks(true));
+      document.getElementById("clearApprovalBtn").addEventListener("click", () => setApprovalChecks(false));
+      document.getElementById("saveApprovalBtn").addEventListener("click", saveApproval);
+    }
+
+    function stageLabelForRow(row) {
+      const step = flowSteps.find(item => item.id === row.rule || item.template === row.template);
+      return step ? (step.stage_label || step.audience) : (row.campaign_step || row.rule || "");
+    }
+
+    function setApprovalChecks(checked) {
+      for (const input of document.querySelectorAll("[data-approval-index]")) input.checked = checked;
+    }
+
+    function collectApproval() {
+      return Array.from(document.querySelectorAll("[data-approval-index]")).map(input => {
+        const row = approvalRows[Number(input.dataset.approvalIndex)];
+        return { email: row.email, template: row.template, approved: input.checked };
+      });
+    }
+
+    async function importWordFile(event) {
+      const input = event.currentTarget;
+      const file = input.files && input.files[0];
+      if (!file) return;
+      if (!file.name.toLowerCase().endsWith(".docx")) {
+        note("Word .docx 파일만 불러올 수 있습니다.");
+        input.value = "";
+        return;
+      }
+
+      const section = input.closest(".message-row");
+      note(`${file.name} 내용을 불러오는 중입니다...`);
+      try {
+        const content = await fileToBase64(file);
+        const data = await api("/api/word-template/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, content_base64: content })
+        });
+        const subjectInput = section.querySelector('[data-flow-field="subject"]');
+        const bodyInput = section.querySelector('[data-flow-field="text_body"]');
+        if (!subjectInput.value.trim()) subjectInput.value = data.subject || "";
+        bodyInput.value = data.text_body || "";
+        section.querySelector('[data-flow-field="word_name"]').textContent = file.name;
+        note(`${file.name} 내용을 본문에 넣었습니다.`);
+      } catch (error) {
+        note(error.message);
+      } finally {
+        input.value = "";
+      }
+    }
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
+        reader.onerror = () => reject(new Error("Word 파일을 읽지 못했습니다."));
+        reader.readAsDataURL(file);
       });
     }
 
@@ -2113,6 +2530,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
         });
         peopleRows = data.rows || [];
         showPeople();
+        if (flowSteps.length) showFlow();
         metrics();
         note("받을 사람 확인이 끝났습니다.");
       } catch (error) {
@@ -2174,11 +2592,58 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       }
     }
 
+    async function prepareApproval() {
+      busy(true);
+      note("오늘 보낼 메일 승인 목록을 만드는 중입니다...");
+      try {
+        const data = await api("/api/approval/prepare", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(formData())
+        });
+        approvalRows = data.rows || [];
+        showApproval();
+        switchTab("approval");
+        note(`승인할 메일 ${approvalRows.length}건을 준비했습니다.`);
+      } catch (error) {
+        note(error.message);
+      } finally {
+        busy(false);
+      }
+    }
+
+    async function saveApproval() {
+      busy(true);
+      note("승인 목록을 저장하는 중입니다...");
+      try {
+        const data = await api("/api/approval/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...formData(), rows: collectApproval() })
+        });
+        approvalRows = data.rows || [];
+        showApproval();
+        note(`승인 목록을 저장했습니다. 승인 ${data.counts.approved}건, 대기 ${data.counts.waiting}건`);
+      } catch (error) {
+        note(error.message);
+      } finally {
+        busy(false);
+      }
+    }
+
     async function refreshPeople() {
       const path = encodeURIComponent(document.getElementById("queue_output").value);
       const data = await api(`/api/queue?path=${path}`);
       peopleRows = data.rows || [];
       showPeople();
+      if (flowSteps.length) showFlow();
+    }
+
+    async function refreshApproval() {
+      const path = encodeURIComponent(document.getElementById("approval_output").value);
+      const data = await api(`/api/approval?path=${path}`);
+      approvalRows = data.rows || [];
+      showApproval();
     }
 
     async function refreshHistory() {
@@ -2201,7 +2666,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     async function refreshAll() {
       busy(true);
       try {
-        await Promise.all([refreshPeople(), refreshHistory(), refreshState(), refreshPm(), loadFlow()]);
+        await Promise.all([refreshPeople(), refreshApproval(), refreshHistory(), refreshState(), refreshPm(), loadFlow()]);
         metrics();
         note("화면을 새로고침했습니다.");
       } catch (error) {
@@ -2215,7 +2680,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       for (const button of document.querySelectorAll(".tab")) {
         button.classList.toggle("active", button.dataset.tab === name);
       }
-      for (const id of ["people", "flow", "preview", "history", "state", "pm"]) {
+      for (const id of ["people", "flow", "approval", "preview", "history", "state", "pm"]) {
         document.getElementById(`${id}Tab`).hidden = id !== name;
       }
     }
@@ -2234,6 +2699,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       for (const key of fields) document.getElementById(key).value = defaults[key] || "";
       document.getElementById("planBtn").addEventListener("click", plan);
       document.getElementById("dryRunBtn").addEventListener("click", preview);
+      document.getElementById("prepareApprovalBtn").addEventListener("click", prepareApproval);
       document.getElementById("saveFlowBtn").addEventListener("click", saveFlow);
       document.getElementById("refreshBtn").addEventListener("click", refreshAll);
       document.getElementById("funnel_config").addEventListener("change", loadFlow);

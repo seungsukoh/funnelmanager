@@ -86,7 +86,9 @@ python inspect_timeline.py --timeline-path outbox\drip_timeline.jsonl --email mi
 ## 로컬 웹 대시보드
 
 브라우저에서 받을 사람 확인, 메일 미리보기, 고객 상태, 고객별 기록을 확인할 수 있습니다.
-`메일 흐름` 탭에서는 고객 유형별로 보낼 메일 이름, 제목, 본문, 다음 메일까지의 일수를 수정할 수 있습니다.
+`단계별 메일` 탭에서는 퍼널 단계마다 해당 명단과 메일 내용을 나누어 보고, 보낼 메일 이름, 제목, 본문, 다음 메일까지의 일수를 수정할 수 있습니다.
+Word `.docx` 파일을 불러와 현재 단계의 메일 본문에 넣을 수도 있습니다.
+`발송 승인` 탭에서는 오늘 보낼 메일 목록을 만들고 실제 발송 허용 대상을 체크해 승인 파일로 저장합니다.
 
 ```powershell
 python web_app.py --host 127.0.0.1 --port 8765
@@ -99,6 +101,20 @@ http://127.0.0.1:8765
 ```
 
 자세한 내용은 `docs/web_dashboard.md`를 참고하세요.
+
+## 예약 실행과 발송 승인
+
+오늘 보낼 메일을 확인하고 승인 파일을 만들 수 있습니다.
+
+```powershell
+python run_due_campaign.py --contacts samples\funnel_contacts.csv --funnel-config samples\drip_config.json --lead-state-path samples\lead_state_drip.json --campaign-id due-demo
+```
+
+승인 파일에서 `approved`를 `yes`로 바꾼 대상만 처리합니다. `--send`를 빼면 실제 발송 없이 미리보기만 만듭니다.
+
+```powershell
+python run_due_campaign.py --contacts samples\funnel_contacts.csv --funnel-config samples\drip_config.json --lead-state-path samples\lead_state_drip.json --campaign-id due-demo --send-approved
+```
 
 ## 폼 응답 webhook 수신
 

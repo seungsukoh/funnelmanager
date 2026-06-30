@@ -110,3 +110,38 @@ python send_campaign.py --contacts inbox\form_responses.csv --funnel-config samp
 ```powershell
 python inspect_timeline.py --email minsu@example.com
 ```
+
+## 8. 예약 실행과 승인 파일
+
+자동 퍼널 운영은 바로 실제 발송하지 않고 먼저 승인 파일을 만든다.
+
+```powershell
+python run_due_campaign.py --contacts inbox\form_responses.csv --funnel-config samples\drip_config.json --lead-state-path state\lead_state.json --campaign-id drip-daily
+```
+
+생성 파일:
+
+- `outbox/due_queue.csv`
+- `outbox/due_approval.csv`
+
+운영자는 승인 파일에서 실제 발송할 행만 `approved=yes`로 바꾼다. 이후 승인된 고객만 미리보기로 처리한다.
+
+```powershell
+python run_due_campaign.py --contacts inbox\form_responses.csv --funnel-config samples\drip_config.json --lead-state-path state\lead_state.json --campaign-id drip-daily --send-approved
+```
+
+실제 발송은 provider와 `--send`를 명시해야 한다.
+
+```powershell
+python run_due_campaign.py --contacts inbox\form_responses.csv --funnel-config samples\drip_config.json --lead-state-path state\lead_state.json --campaign-id drip-daily --send-approved --provider outlook --send --outlook-display
+```
+
+완전 자동 발송으로 전환하기 전까지는 `--outlook-display` 또는 `--test-to`로 검수한다.
+
+## 9. Windows 작업 스케줄러 연결
+
+매일 오전 9시에 승인 파일만 만들려면 작업 스케줄러에서 다음 명령을 실행한다.
+
+```powershell
+python C:\workspace\projects\automailing\run_due_campaign.py --contacts C:\workspace\projects\automailing\inbox\form_responses.csv --funnel-config C:\workspace\projects\automailing\samples\drip_config.json --lead-state-path C:\workspace\projects\automailing\state\lead_state.json --campaign-id drip-daily --queue-output C:\workspace\projects\automailing\outbox\due_queue.csv --approval-output C:\workspace\projects\automailing\outbox\due_approval.csv
+```

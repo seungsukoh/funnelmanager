@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import io
 import re
 import zipfile
 from pathlib import Path
@@ -14,12 +15,29 @@ def load_word_template(path: Path, subject_template: str | None = None) -> Email
         raise ValueError("--word-template currently supports .docx files.")
 
     with zipfile.ZipFile(path) as archive:
-        with archive.open("word/document.xml") as file:
-            root = ElementTree.parse(file).getroot()
+        root = _document_root(archive)
 
     html_body, text_body = _document_to_bodies(root)
     subject = subject_template or path.stem
     return EmailTemplate(name=path.stem, subject=subject, html_body=html_body, text_body=text_body)
+
+
+def load_word_template_bytes(filename: str, content: bytes, subject_template: str | None = None) -> EmailTemplate:
+    path = Path(filename)
+    if path.suffix.lower() != ".docx":
+        raise ValueError("Word import currently supports .docx files.")
+
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        root = _document_root(archive)
+
+    html_body, text_body = _document_to_bodies(root)
+    subject = subject_template or path.stem
+    return EmailTemplate(name=path.stem, subject=subject, html_body=html_body, text_body=text_body)
+
+
+def _document_root(archive: zipfile.ZipFile) -> ElementTree.Element:
+    with archive.open("word/document.xml") as file:
+        return ElementTree.parse(file).getroot()
 
 
 def _document_to_bodies(root: ElementTree.Element) -> tuple[str, str]:
