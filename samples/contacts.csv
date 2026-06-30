@@ -1,0 +1,3 @@
+이름,이메일,event_name,followup_url,template
+김민수,minsu@example.com,AI 세미나,https://example.com/events/ai-followup,event_followup
+박지영,jiyoung@example.com,AI 세미나,https://example.com/events/ai-followup,no_show_followup

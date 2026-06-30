@@ -1,0 +1,64 @@
+{
+  "field_mapping": {
+    "email": ["이메일", "email"],
+    "name": ["이름", "name"],
+    "event_name": "event_name",
+    "followup_url": "followup_url",
+    "attendance": "참석여부",
+    "marketing_consent": "마케팅동의",
+    "unsubscribed": "수신거부"
+  },
+  "global_excludes": [
+    {
+      "field": "unsubscribed",
+      "operator": "truthy",
+      "reason": "수신거부"
+    },
+    {
+      "field": "marketing_consent",
+      "operator": "falsy",
+      "reason": "마케팅 동의 없음"
+    }
+  ],
+  "default_template": "no_show_followup",
+  "rules": [
+    {
+      "name": "attended_followup",
+      "priority": 10,
+      "conditions": [
+        {
+          "field": "attendance",
+          "operator": "equals",
+          "value": "참석"
+        }
+      ],
+      "action": {
+        "type": "send",
+        "template": "event_followup",
+        "set_status": "육성중",
+        "add_tags": ["세미나참석"],
+        "set_step": "attended_followup_sent",
+        "next_send_after_days": 2
+      }
+    },
+    {
+      "name": "no_show_followup",
+      "priority": 20,
+      "conditions": [
+        {
+          "field": "attendance",
+          "operator": "equals",
+          "value": "미참석"
+        }
+      ],
+      "action": {
+        "type": "send",
+        "template": "no_show_followup",
+        "set_status": "육성중",
+        "add_tags": ["세미나미참석"],
+        "set_step": "no_show_followup_sent",
+        "next_send_after_days": 3
+      }
+    }
+  ]
+}

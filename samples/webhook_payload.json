@@ -1,0 +1,14 @@
+{
+  "source": "google_forms",
+  "external_response_id": "sample-response-1",
+  "submitted_at": "2026-07-01T00:00:00Z",
+  "fields": {
+    "이름": "김민수",
+    "이메일": "minsu@example.com",
+    "event_name": "AI 세미나",
+    "followup_url": "https://example.com/events/ai-followup",
+    "참석여부": "참석",
+    "마케팅동의": "예",
+    "수신거부": "아니오"
+  }
+}

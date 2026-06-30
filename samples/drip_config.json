@@ -1,0 +1,85 @@
+{
+  "field_mapping": {
+    "email": ["이메일", "email"],
+    "name": ["이름", "name"],
+    "event_name": "event_name",
+    "followup_url": "followup_url",
+    "attendance": "참석여부",
+    "marketing_consent": "마케팅동의",
+    "unsubscribed": "수신거부"
+  },
+  "global_excludes": [
+    {
+      "field": "unsubscribed",
+      "operator": "truthy",
+      "reason": "수신거부"
+    },
+    {
+      "field": "marketing_consent",
+      "operator": "falsy",
+      "reason": "마케팅 동의 없음"
+    }
+  ],
+  "steps": [
+    {
+      "id": "attended_first_touch",
+      "priority": 10,
+      "conditions": [
+        {
+          "field": "campaign_step",
+          "operator": "is_empty"
+        },
+        {
+          "field": "attendance",
+          "operator": "equals",
+          "value": "참석"
+        }
+      ],
+      "template": "event_followup",
+      "set_status": "육성중",
+      "add_tags": ["세미나참석"],
+      "next_step": "attended_second_touch",
+      "next_send_after_days": 2
+    },
+    {
+      "id": "attended_second_touch",
+      "priority": 20,
+      "conditions": [
+        {
+          "field": "campaign_step",
+          "operator": "equals",
+          "value": "attended_second_touch"
+        },
+        {
+          "field": "lead_tags",
+          "operator": "contains",
+          "value": "세미나참석"
+        }
+      ],
+      "template": "event_second_touch",
+      "set_status": "관심있음",
+      "add_tags": ["추가안내완료"],
+      "set_step": "attended_complete"
+    },
+    {
+      "id": "no_show_first_touch",
+      "priority": 30,
+      "conditions": [
+        {
+          "field": "campaign_step",
+          "operator": "is_empty"
+        },
+        {
+          "field": "attendance",
+          "operator": "equals",
+          "value": "미참석"
+        }
+      ],
+      "template": "no_show_followup",
+      "set_status": "육성중",
+      "add_tags": ["세미나미참석"],
+      "next_step": "no_show_second_touch",
+      "next_send_after_days": 3
+    }
+  ]
+}

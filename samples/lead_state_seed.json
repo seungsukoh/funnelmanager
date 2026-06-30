@@ -1,0 +1,15 @@
+{
+  "contacts": {
+    "jiyoung@example.com": {
+      "status": "육성중",
+      "tags": ["세미나미참석"],
+      "campaign_step": "no_show_followup_sent",
+      "next_send_at": "2099-01-01T00:00:00+00:00"
+    },
+    "seojoon@example.com": {
+      "status": "전환됨",
+      "tags": ["전환완료"],
+      "campaign_step": "closed"
+    }
+  }
+}

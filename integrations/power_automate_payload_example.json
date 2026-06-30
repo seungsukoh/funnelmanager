@@ -1,0 +1,14 @@
+{
+  "source": "microsoft_forms",
+  "external_response_id": "@{outputs('Get_response_details')?['body/responseId']}",
+  "submitted_at": "@{utcNow()}",
+  "fields": {
+    "이름": "@{outputs('Get_response_details')?['body/name']}",
+    "이메일": "@{outputs('Get_response_details')?['body/email']}",
+    "event_name": "AI 세미나",
+    "followup_url": "https://example.com/events/ai-followup",
+    "참석여부": "@{outputs('Get_response_details')?['body/attendance']}",
+    "마케팅동의": "@{outputs('Get_response_details')?['body/marketingConsent']}",
+    "수신거부": "아니오"
+  }
+}
