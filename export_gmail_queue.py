@@ -37,28 +37,60 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    rows = load_contacts(Path(args.contacts))
-    if args.limit:
-        rows = rows[: args.limit]
+    summary = export_queue(
+        contacts_path=Path(args.contacts),
+        funnel_config_path=Path(args.funnel_config),
+        campaign_id=args.campaign_id,
+        approval_path=Path(args.approval_path) if args.approval_path else None,
+        output_path=Path(args.output),
+        template_dir=Path(args.template_dir),
+        lead_state_path=Path(args.lead_state_path),
+        db_path=Path(args.db_path),
+        email_column=args.email_column,
+        name_column=args.name_column,
+        limit=args.limit,
+    )
+    print(f"gmail_queue={summary['output_path']}")
+    print(f"pending={summary['pending']}")
+    return 0
+
+
+def export_queue(
+    *,
+    contacts_path: Path,
+    funnel_config_path: Path,
+    campaign_id: str,
+    approval_path: Path | None,
+    output_path: Path,
+    template_dir: Path,
+    lead_state_path: Path,
+    db_path: Path,
+    email_column: str | None = None,
+    name_column: str | None = None,
+    limit: int | None = None,
+) -> dict[str, object]:
+    rows = load_contacts(contacts_path)
+    if limit:
+        rows = rows[:limit]
     if not rows:
-        raise SystemExit("No contact rows found.")
+        raise ValueError("No contact rows found.")
 
-    funnel = load_funnel_config(Path(args.funnel_config))
+    funnel = load_funnel_config(funnel_config_path)
     rows = [apply_field_mapping(row, funnel.field_mapping) for row in rows]
-    email_column = args.email_column or detect_column(rows, EMAIL_COLUMN_CANDIDATES)
-    if not email_column:
-        raise SystemExit("Could not detect recipient email column.")
-    name_column = args.name_column or detect_column(rows, NAME_COLUMN_CANDIDATES)
+    detected_email_column = email_column or detect_column(rows, EMAIL_COLUMN_CANDIDATES)
+    if not detected_email_column:
+        raise ValueError("Could not detect recipient email column.")
+    detected_name_column = name_column or detect_column(rows, NAME_COLUMN_CANDIDATES)
 
-    approved_keys = _approved_keys(Path(args.approval_path)) if args.approval_path else None
-    lead_state = LeadStateStore(Path(args.lead_state_path))
-    history = SendHistory(Path(args.db_path))
+    approved_keys = _approved_keys(approval_path) if approval_path else None
+    lead_state = LeadStateStore(lead_state_path)
+    history = SendHistory(db_path)
     template_cache = {}
     output_rows: list[dict[str, str]] = []
 
     try:
         for source_row in rows:
-            raw_email = source_row.get(email_column, "")
+            raw_email = source_row.get(detected_email_column, "")
             email = normalise_email(raw_email)
             if not email or not is_valid_email(email):
                 continue
@@ -72,16 +104,16 @@ def main() -> int:
             if approved_keys is not None and _approval_key(email, decision.template_name) not in approved_keys:
                 continue
 
-            idempotency_key = _idempotency_key(args.campaign_id, decision.template_name, email)
+            idempotency_key = _idempotency_key(campaign_id, decision.template_name, email)
             if history.has_success(idempotency_key):
                 continue
 
             template = template_cache.get(decision.template_name)
             if template is None:
-                template = load_template(Path(args.template_dir), decision.template_name)
+                template = load_template(template_dir, decision.template_name)
                 template_cache[decision.template_name] = template
 
-            name = row.get(name_column, "") if name_column else ""
+            name = row.get(detected_name_column, "") if detected_name_column else ""
             rendered = render_template(template, enrich_variables(row, email=email, name=name))
             output_rows.append(
                 {
@@ -89,7 +121,7 @@ def main() -> int:
                     "status": "pending",
                     "email": email,
                     "name": name,
-                    "campaign_id": args.campaign_id,
+                    "campaign_id": campaign_id,
                     "template": decision.template_name,
                     "rule": decision.rule_name,
                     "subject": rendered.subject,
@@ -103,16 +135,13 @@ def main() -> int:
     finally:
         history.close()
 
-    output_path = Path(args.output)
     _write_queue(output_path, output_rows)
-    print(f"gmail_queue={output_path}")
-    print(f"pending={len(output_rows)}")
-    return 0
+    return {"output_path": str(output_path), "pending": len(output_rows)}
 
 
 def _approved_keys(path: Path) -> set[str]:
     if not path.exists():
-        raise SystemExit(f"Approval file not found: {path}")
+        raise ValueError(f"Approval file not found: {path}")
     keys = set()
     with path.open("r", encoding="utf-8-sig", newline="") as file:
         for row in csv.DictReader(file):

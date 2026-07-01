@@ -14,6 +14,7 @@ from automailer.campaign import CampaignConfig, run_campaign
 from automailer.planner import PlanConfig, build_send_queue
 from automailer.word_template import load_word_template_bytes
 from compare_gmail_results import compare_results as compare_gmail_results
+from export_gmail_queue import export_queue as export_gmail_queue
 from fetch_gmail_results import fetch_results as fetch_gmail_results
 from fetch_private_gmail_results import (
     build_authorization_url as build_google_authorization_url,
@@ -135,6 +136,10 @@ def make_handler():
                     return
                 if parsed.path == "/api/gmail/import":
                     result = _handle_import_gmail_results(payload)
+                    self._json_response(200, result)
+                    return
+                if parsed.path == "/api/gmail/export":
+                    result = _handle_export_gmail_queue(payload)
                     self._json_response(200, result)
                     return
                 if parsed.path == "/api/gmail/fetch":
@@ -444,6 +449,21 @@ def _handle_import_gmail_results(payload: dict[str, object]) -> dict[str, object
         db_path=_safe_path(config["send_history"]),
         timeline_path=_safe_path(config["timeline"]),
         default_campaign_id=config["campaign_id"],
+    )
+    return {"ok": True, "summary": summary}
+
+
+def _handle_export_gmail_queue(payload: dict[str, object]) -> dict[str, object]:
+    config = _request_config(payload)
+    summary = export_gmail_queue(
+        contacts_path=_safe_path(config["contacts"]),
+        funnel_config_path=_safe_path(config["funnel_config"]),
+        campaign_id=config["campaign_id"],
+        approval_path=_safe_path(config["approval_output"]),
+        output_path=_safe_path(config["gmail_results"]),
+        template_dir=TEMPLATE_DIR,
+        lead_state_path=_safe_path(config["lead_state"]),
+        db_path=_safe_path(config["send_history"]),
     )
     return {"ok": True, "summary": summary}
 
@@ -1893,6 +1913,48 @@ SIMPLE_DASHBOARD_HTML = r"""<!doctype html>
       document.getElementById("scheduledCount").textContent = count("scheduled");
       document.getElementById("skippedCount").textContent = count("skipped");
       document.getElementById("sentCount").textContent = previewRows.filter(row => row.status === "sent").length;
+      updateWorkflowStatus();
+    }
+
+    function updateWorkflowStatus() {
+      const ready = peopleRows.filter(row => row.status === "ready").length;
+      const scheduled = peopleRows.filter(row => row.status === "scheduled").length;
+      const skipped = peopleRows.filter(row => row.status === "skipped").length;
+      const approved = approvalRows.filter(row => row.approved === "yes").length;
+      const waiting = approvalRows.length - approved;
+      const previewSent = previewRows.filter(row => row.status === "sent").length;
+      const gmailTotal = Object.values(gmailCounts || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+
+      setText("peopleStepStatus", peopleRows.length ? `보낼 사람 ${ready}명 / 나중 ${scheduled}명 / 제외 ${skipped}명` : "아직 확인 전입니다.");
+      setText("flowStepStatus", flowSteps.length ? `${flowSteps.length}개 단계가 준비됐습니다.` : "메일 흐름을 불러오는 중입니다.");
+      setText("approvalStepStatus", approvalRows.length ? `승인 ${approved}건 / 대기 ${waiting}건` : "승인 목록 전입니다.");
+      setText("previewStepStatus", previewRows.length ? `미리보기 ${previewSent}건 완료` : "미리보기 전입니다.");
+      setText("gmailStepStatus", gmailTotal ? `같음 ${gmailCounts.matched || 0}건 / 확인 필요 ${gmailCounts.needs_review || 0}건` : "결과 확인 전입니다.");
+
+      const nextId = !peopleRows.length
+        ? "workflowPeople"
+        : !approvalRows.length
+          ? "workflowApproval"
+          : !previewRows.length
+            ? "workflowPreview"
+            : !gmailTotal
+              ? "workflowGmail"
+              : "";
+      for (const card of document.querySelectorAll(".work-card")) {
+        card.classList.toggle("next", card.id === nextId);
+      }
+      const labels = {
+        workflowPeople: "다음 작업: 명단 확인",
+        workflowApproval: "다음 작업: 발송 승인",
+        workflowPreview: "다음 작업: 미리보기 만들기",
+        workflowGmail: "다음 작업: Gmail 결과 확인"
+      };
+      setText("nextStepText", labels[nextId] || "오늘 흐름을 모두 확인했습니다.");
+    }
+
+    function setText(id, text) {
+      const element = document.getElementById(id);
+      if (element) element.textContent = text;
     }
 
     async function plan() {
@@ -2079,6 +2141,79 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     button:disabled {
       opacity: .62;
       cursor: wait;
+    }
+    .workflow {
+      margin-bottom: 14px;
+    }
+    .workflow-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+    .workflow-head h2 {
+      margin: 0;
+      font-size: 18px;
+    }
+    .workflow-head span {
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .workflow-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .work-card {
+      min-height: 184px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 13px;
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      gap: 8px;
+    }
+    .work-card.next {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 2px rgba(23, 105, 170, .12);
+    }
+    .work-number {
+      width: 26px;
+      height: 26px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 999px;
+      background: #e7eef7;
+      color: var(--blue);
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .work-card h3 {
+      margin: 0;
+      font-size: 15px;
+    }
+    .work-card p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .work-status {
+      min-height: 36px;
+      color: var(--text);
+      font-weight: 700;
+      line-height: 1.45;
+    }
+    .work-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .work-actions button {
+      min-height: 34px;
+      padding: 7px 9px;
+      font-size: 13px;
     }
     .steps, .cards {
       display: grid;
@@ -2406,6 +2541,9 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     @media (max-width: 980px) {
       header, .layout { display: block; }
       .actions { justify-content: flex-start; margin-top: 12px; }
+      .workflow-head { display: block; }
+      .workflow-head span { display: block; margin-top: 4px; }
+      .workflow-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .steps, .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .layout > .panel { margin-bottom: 14px; }
       .message-head { display: block; }
@@ -2414,7 +2552,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       .setup-steps { grid-template-columns: 1fr; }
     }
     @media (max-width: 620px) {
-      .steps, .cards, .form-grid { grid-template-columns: 1fr; }
+      .workflow-grid, .steps, .cards, .form-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -2426,24 +2564,74 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
         <p class="sub">행사 후 고객별 후속 메일 관리</p>
       </div>
       <div class="actions">
-        <button id="planBtn">받을 사람 확인</button>
-        <button id="dryRunBtn" class="primary">메일 미리보기 만들기</button>
-        <button id="prepareApprovalBtn">발송 승인 준비</button>
-        <button id="connectGoogleBtn">Google 연결</button>
-        <button id="fetchPrivateGmailBtn">비공개 시트 가져오기</button>
-        <button id="fetchGmailBtn">Gmail 시트 가져오기</button>
-        <button id="importGmailBtn">Gmail 결과 반영</button>
-        <button id="compareGmailBtn">Gmail 결과 확인</button>
-        <button id="saveFlowBtn">단계별 메일 저장</button>
         <button id="refreshBtn">화면 새로고침</button>
       </div>
     </header>
 
-    <section class="steps">
-      <div class="step"><strong>1. 명단 선택</strong><span>폼 응답이나 엑셀 명단을 불러옵니다.</span></div>
-      <div class="step"><strong>2. 받을 사람 확인</strong><span>지금 보낼 사람과 제외할 사람을 나눕니다.</span></div>
-      <div class="step"><strong>3. 단계별 메일 작성</strong><span>퍼널 단계마다 명단과 메일 내용을 따로 확인합니다.</span></div>
-      <div class="step"><strong>4. 미리보기</strong><span>실제 발송 전 결과 파일을 만듭니다.</span></div>
+    <section class="workflow">
+      <div class="workflow-head">
+        <div>
+          <h2>오늘 진행 순서</h2>
+          <span>왼쪽부터 차례대로 확인하면 발송 준비부터 결과 반영까지 이어집니다.</span>
+        </div>
+        <span id="nextStepText">다음 작업을 확인하는 중입니다.</span>
+      </div>
+      <div class="workflow-grid">
+        <article class="work-card" id="workflowPeople">
+          <span class="work-number">1</span>
+          <h3>명단 확인</h3>
+          <p>오늘 보낼 사람과 제외할 사람을 나눕니다.</p>
+          <div class="work-status" id="peopleStepStatus">아직 확인 전입니다.</div>
+          <div class="work-actions">
+            <button id="planBtn" class="primary">명단 확인</button>
+            <button type="button" data-open-tab="people">목록 보기</button>
+          </div>
+        </article>
+        <article class="work-card" id="workflowFlow">
+          <span class="work-number">2</span>
+          <h3>단계별 메일</h3>
+          <p>퍼널 단계마다 보낼 메일을 확인합니다.</p>
+          <div class="work-status" id="flowStepStatus">메일 흐름을 불러오는 중입니다.</div>
+          <div class="work-actions">
+            <button type="button" data-open-tab="flow">메일 보기</button>
+            <button id="saveFlowBtn">저장</button>
+          </div>
+        </article>
+        <article class="work-card" id="workflowApproval">
+          <span class="work-number">3</span>
+          <h3>발송 승인</h3>
+          <p>실제로 보낼 고객만 체크합니다.</p>
+          <div class="work-status" id="approvalStepStatus">승인 목록 전입니다.</div>
+          <div class="work-actions">
+            <button id="prepareApprovalBtn" class="primary">승인 준비</button>
+            <button type="button" data-open-tab="approval">승인 보기</button>
+          </div>
+        </article>
+        <article class="work-card" id="workflowPreview">
+          <span class="work-number">4</span>
+          <h3>미리보기</h3>
+          <p>보내기 전에 메일 내용을 파일로 확인합니다.</p>
+          <div class="work-status" id="previewStepStatus">미리보기 전입니다.</div>
+          <div class="work-actions">
+            <button id="dryRunBtn" class="primary">미리보기 만들기</button>
+            <button type="button" data-open-tab="preview">결과 보기</button>
+          </div>
+        </article>
+        <article class="work-card" id="workflowGmail">
+          <span class="work-number">5</span>
+          <h3>Gmail 결과</h3>
+          <p>발송 결과를 가져와 고객 상태에 반영합니다.</p>
+          <div class="work-status" id="gmailStepStatus">결과 확인 전입니다.</div>
+          <div class="work-actions">
+            <button id="exportGmailBtn" class="primary">발송 준비</button>
+            <button id="connectGoogleBtn">Google 연결</button>
+            <button id="fetchPrivateGmailBtn">결과 가져오기</button>
+            <button id="importGmailBtn">결과 반영</button>
+            <button id="compareGmailBtn">확인</button>
+            <button id="fetchGmailBtn" type="button">CSV 링크</button>
+          </div>
+        </article>
+      </div>
     </section>
 
     <section class="cards">
@@ -2534,6 +2722,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     let approvalRows = [];
     let gmailRows = [];
     let gmailCounts = {};
+    let gmailQueuePending = 0;
     let googleSetup = null;
 
     function formData() {
@@ -2550,7 +2739,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     }
 
     function busy(value) {
-      for (const id of ["planBtn", "dryRunBtn", "prepareApprovalBtn", "connectGoogleBtn", "fetchPrivateGmailBtn", "fetchGmailBtn", "importGmailBtn", "compareGmailBtn", "saveFlowBtn", "refreshBtn"]) {
+      for (const id of ["planBtn", "dryRunBtn", "prepareApprovalBtn", "exportGmailBtn", "connectGoogleBtn", "fetchPrivateGmailBtn", "fetchGmailBtn", "importGmailBtn", "compareGmailBtn", "saveFlowBtn", "refreshBtn"]) {
         const element = document.getElementById(id);
         if (element) element.disabled = value;
       }
@@ -2633,6 +2822,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       if (!flowSteps.length) {
         summary.innerHTML = "<p class='note'>등록된 메일 흐름이 없습니다.</p>";
         document.getElementById("flowTab").innerHTML = "<p class='note'>등록된 메일 흐름이 없습니다.</p>";
+        updateWorkflowStatus();
         return;
       }
 
@@ -2692,6 +2882,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       for (const input of document.querySelectorAll('[data-flow-field="word_file"]')) {
         input.addEventListener("change", importWordFile);
       }
+      updateWorkflowStatus();
     }
 
     function collectFlow() {
@@ -2741,6 +2932,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
           <p class="note">아직 승인할 메일이 없습니다. 먼저 받을 사람을 확인한 뒤 발송 승인 준비를 누르세요.</p>
           <button type="button" id="prepareApprovalInTabBtn">발송 승인 준비</button>`;
         document.getElementById("prepareApprovalInTabBtn").addEventListener("click", prepareApproval);
+        updateWorkflowStatus();
         return;
       }
 
@@ -2768,6 +2960,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       document.getElementById("approveAllBtn").addEventListener("click", () => setApprovalChecks(true));
       document.getElementById("clearApprovalBtn").addEventListener("click", () => setApprovalChecks(false));
       document.getElementById("saveApprovalBtn").addEventListener("click", saveApproval);
+      updateWorkflowStatus();
     }
 
     function showGmailCompare(counts = {}) {
@@ -2779,6 +2972,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       const ignored = counts.ignored || 0;
       const summary = `
         <div class="message-tools">
+          <button type="button" id="exportGmailInTabBtn">Gmail 발송 준비</button>
           <button type="button" id="connectGoogleInTabBtn">Google 연결</button>
           <button type="button" id="fetchPrivateGmailInTabBtn">비공개 시트 가져오기</button>
           <button type="button" id="fetchGmailInTabBtn">Gmail 시트 가져오기</button>
@@ -2807,6 +3001,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
           </table>`;
       }
 
+      document.getElementById("exportGmailInTabBtn").addEventListener("click", exportGmailQueue);
       document.getElementById("connectGoogleInTabBtn").addEventListener("click", connectGoogle);
       document.getElementById("fetchPrivateGmailInTabBtn").addEventListener("click", fetchPrivateGmailResults);
       document.getElementById("fetchGmailInTabBtn").addEventListener("click", fetchGmailResults);
@@ -2816,6 +3011,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       if (statusButton) statusButton.addEventListener("click", () => refreshGoogleStatus(true));
       const connectButton = document.getElementById("connectGoogleGuideBtn");
       if (connectButton) connectButton.addEventListener("click", connectGoogle);
+      updateWorkflowStatus();
     }
 
     function googleGuideHtml() {
@@ -2916,6 +3112,55 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       document.getElementById("scheduledCount").textContent = count("scheduled");
       document.getElementById("skippedCount").textContent = count("skipped");
       document.getElementById("sentCount").textContent = previewRows.filter(row => row.status === "sent").length;
+      updateWorkflowStatus();
+    }
+
+    function updateWorkflowStatus() {
+      const ready = peopleRows.filter(row => row.status === "ready").length;
+      const scheduled = peopleRows.filter(row => row.status === "scheduled").length;
+      const skipped = peopleRows.filter(row => row.status === "skipped").length;
+      const approved = approvalRows.filter(row => row.approved === "yes").length;
+      const waiting = approvalRows.length - approved;
+      const previewSent = previewRows.filter(row => row.status === "sent").length;
+      const gmailTotal = Object.values(gmailCounts || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+
+      setText("peopleStepStatus", peopleRows.length ? `보낼 사람 ${ready}명 / 나중 ${scheduled}명 / 제외 ${skipped}명` : "아직 확인 전입니다.");
+      setText("flowStepStatus", flowSteps.length ? `${flowSteps.length}개 단계가 준비됐습니다.` : "메일 흐름을 불러오는 중입니다.");
+      setText("approvalStepStatus", approvalRows.length ? `승인 ${approved}건 / 대기 ${waiting}건` : "승인 목록 전입니다.");
+      setText("previewStepStatus", previewRows.length ? `미리보기 ${previewSent}건 완료` : "미리보기 전입니다.");
+      setText(
+        "gmailStepStatus",
+        gmailTotal
+          ? `같음 ${gmailCounts.matched || 0}건 / 확인 필요 ${gmailCounts.needs_review || 0}건`
+          : gmailQueuePending
+            ? `Gmail 발송 준비 ${gmailQueuePending}건`
+            : "결과 확인 전입니다."
+      );
+
+      const nextId = !peopleRows.length
+        ? "workflowPeople"
+        : !approvalRows.length
+          ? "workflowApproval"
+          : !previewRows.length
+            ? "workflowPreview"
+            : !gmailTotal
+              ? "workflowGmail"
+              : "";
+      for (const card of document.querySelectorAll(".work-card")) {
+        card.classList.toggle("next", card.id === nextId);
+      }
+      const labels = {
+        workflowPeople: "다음 작업: 명단 확인",
+        workflowApproval: "다음 작업: 발송 승인",
+        workflowPreview: "다음 작업: 미리보기 만들기",
+        workflowGmail: "다음 작업: Gmail 발송 결과"
+      };
+      setText("nextStepText", labels[nextId] || "오늘 흐름을 모두 확인했습니다.");
+    }
+
+    function setText(id, text) {
+      const element = document.getElementById(id);
+      if (element) element.textContent = text;
     }
 
     async function plan() {
@@ -3023,6 +3268,26 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
         approvalRows = data.rows || [];
         showApproval();
         note(`승인 목록을 저장했습니다. 승인 ${data.counts.approved}건, 대기 ${data.counts.waiting}건`);
+      } catch (error) {
+        note(error.message);
+      } finally {
+        busy(false);
+      }
+    }
+
+    async function exportGmailQueue() {
+      busy(true);
+      note("Gmail 발송 준비 파일을 만드는 중입니다...");
+      try {
+        const data = await api("/api/gmail/export", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(formData())
+        });
+        gmailQueuePending = data.summary.pending || 0;
+        updateWorkflowStatus();
+        switchTab("gmail");
+        note(`Gmail 발송 준비 완료: ${gmailQueuePending}건`);
       } catch (error) {
         note(error.message);
       } finally {
@@ -3184,7 +3449,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     async function refreshAll() {
       busy(true);
       try {
-        await Promise.all([refreshPeople(), refreshApproval(), refreshHistory(), refreshState(), refreshPm(), loadFlow()]);
+        await Promise.all([refreshPeople(), refreshApproval(), refreshHistory(), refreshState(), refreshPm(), loadFlow(), refreshGoogleStatus(false)]);
         metrics();
         note("화면을 새로고침했습니다.");
       } catch (error) {
@@ -3218,6 +3483,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       document.getElementById("planBtn").addEventListener("click", plan);
       document.getElementById("dryRunBtn").addEventListener("click", preview);
       document.getElementById("prepareApprovalBtn").addEventListener("click", prepareApproval);
+      document.getElementById("exportGmailBtn").addEventListener("click", exportGmailQueue);
       document.getElementById("connectGoogleBtn").addEventListener("click", connectGoogle);
       document.getElementById("fetchPrivateGmailBtn").addEventListener("click", fetchPrivateGmailResults);
       document.getElementById("fetchGmailBtn").addEventListener("click", fetchGmailResults);
@@ -3228,6 +3494,9 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       document.getElementById("funnel_config").addEventListener("change", loadFlow);
       for (const button of document.querySelectorAll(".tab")) {
         button.addEventListener("click", () => switchTab(button.dataset.tab));
+      }
+      for (const button of document.querySelectorAll("[data-open-tab]")) {
+        button.addEventListener("click", () => switchTab(button.dataset.openTab));
       }
       await refreshGoogleStatus(false);
       await plan();

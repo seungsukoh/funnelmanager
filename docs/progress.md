@@ -89,6 +89,10 @@
 - 웹 화면에 `Google 연결`, `비공개 시트 가져오기` 버튼/API 추가
 - Google OAuth 인증 파일 예시와 gitignore 보강: `config/google_oauth_client.example.json`
 - 웹 화면 `Gmail 확인` 탭에 비공개 Google Sheet 설정 안내/상태 확인 추가
+- UX/UI 검토 메모 작성: `docs/ux_review.md`
+- 웹 첫 화면을 `오늘 진행 순서` 카드형 흐름으로 개선
+- 다음 작업 강조와 단계별 상태 문구 추가
+- 웹 화면에 승인된 고객 기준 `Gmail 발송 준비` 버튼/API 추가
 
 ### 진행 중
 
@@ -96,6 +100,7 @@
 - 실제 provider 발송 후 lead_state 업데이트 검증 준비
 - Windows 작업 스케줄러 연결 절차 검증 준비
 - 비공개 Gmail Sheet OAuth를 실제 운영 Google 계정으로 검증 준비
+- 쉬운 운영 흐름 기준으로 사용자 테스트 준비
 
 ### 다음 작업
 
@@ -107,6 +112,7 @@
 - Windows 작업 스케줄러 등록/해제 스크립트 추가
 - 실제 Google Cloud OAuth Client 생성 및 비공개 Sheet 연결 테스트
 - Gmail 결과 확인에서 확인 필요 항목만 다시 처리하는 운영 흐름 추가
+- Google Sheet 업로드 자동화 UX 설계
 
 ### 리스크
 

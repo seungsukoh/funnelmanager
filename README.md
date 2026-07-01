@@ -121,6 +121,7 @@ python run_due_campaign.py --contacts samples\funnel_contacts.csv --funnel-confi
 ## Gmail + Apps Script 발송
 
 하루 100명 이하 소량 발송은 Gmail + Apps Script로 시작할 수 있습니다. 승인된 고객만 Google Sheets에 올릴 CSV로 내보냅니다.
+웹 화면에서는 `발송 승인` 후 `오늘 진행 순서`의 `Gmail 결과` 단계에서 `발송 준비`를 누르면 같은 파일을 만들 수 있습니다.
 
 ```powershell
 python export_gmail_queue.py --contacts samples\funnel_contacts.csv --funnel-config samples\drip_config.json --lead-state-path samples\lead_state_drip.json --campaign-id gmail-demo --approval-path outbox\web_dashboard_approval.csv --output outbox\gmail_send_queue.csv
