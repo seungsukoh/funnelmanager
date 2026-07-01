@@ -88,6 +88,7 @@
 - 비공개 Google Sheet OAuth 읽기 CLI 추가: `fetch_private_gmail_results.py`
 - 웹 화면에 `Google 연결`, `비공개 시트 가져오기` 버튼/API 추가
 - Google OAuth 인증 파일 예시와 gitignore 보강: `config/google_oauth_client.example.json`
+- 웹 화면 `Gmail 확인` 탭에 비공개 Google Sheet 설정 안내/상태 확인 추가
 
 ### 진행 중
 

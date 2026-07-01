@@ -135,6 +135,7 @@ python fetch_gmail_results.py --source "https://docs.google.com/spreadsheets/d/<
 ```
 
 고객 이메일이 들어간 시트는 비공개 Google Sheet로 운영하는 것이 안전합니다. Google OAuth 클라이언트 JSON을 `config\google_oauth_client.json`에 저장한 뒤 웹 화면에서 `Google 연결`을 한 번 완료하고 `비공개 시트 가져오기`를 누릅니다.
+웹 화면의 `Gmail 확인` 탭에서 필요한 Google 설정과 준비 상태를 안내합니다.
 
 ```powershell
 python fetch_private_gmail_results.py --source "https://docs.google.com/spreadsheets/d/<sheet-id>/edit#gid=0" --sheet-name GmailQueue --credentials config\google_oauth_client.json --token state\google_sheets_token.json --output outbox\gmail_send_queue.csv

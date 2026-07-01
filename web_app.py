@@ -153,6 +153,10 @@ def make_handler():
                     result = _handle_google_auth_url(payload)
                     self._json_response(200, result)
                     return
+                if parsed.path == "/api/google/status":
+                    result = _handle_google_setup_status(payload)
+                    self._json_response(200, result)
+                    return
                 self._json_response(404, {"ok": False, "error": "not found"})
             except Exception as error:
                 self._json_response(400, {"ok": False, "error": str(error)})
@@ -487,6 +491,89 @@ def _handle_google_auth_url(payload: dict[str, object]) -> dict[str, object]:
         redirect_uri=redirect_uri,
     )
     return {"ok": True, **result}
+
+
+def _handle_google_setup_status(payload: dict[str, object]) -> dict[str, object]:
+    config = _request_config(payload)
+    credentials_path = _safe_path(config["google_credentials"])
+    token_path = _safe_path(config["google_token"])
+    source = config["gmail_source"].strip()
+    sheet_name = config["gmail_sheet_name"].strip() or "GmailQueue"
+
+    credential = _google_credential_status(credentials_path)
+    token = _google_token_status(token_path)
+    steps = [
+        {
+            "id": "cloud",
+            "label": "Google Cloud 설정",
+            "done": credential["valid"],
+            "detail": credential["detail"],
+        },
+        {
+            "id": "sheet",
+            "label": "비공개 시트 입력",
+            "done": bool(source),
+            "detail": "Gmail 시트 링크가 입력됐습니다." if source else "Gmail 시트 링크를 입력하세요.",
+        },
+        {
+            "id": "connect",
+            "label": "Google 연결",
+            "done": token["valid"],
+            "detail": token["detail"],
+        },
+        {
+            "id": "fetch",
+            "label": "결과 가져오기 준비",
+            "done": credential["valid"] and bool(source) and token["valid"],
+            "detail": "비공개 시트 가져오기를 실행할 수 있습니다."
+            if credential["valid"] and bool(source) and token["valid"]
+            else "위 항목을 완료하면 비공개 시트 가져오기를 실행할 수 있습니다.",
+        },
+    ]
+    return {
+        "ok": True,
+        "credentials_path": _relative(credentials_path),
+        "token_path": _relative(token_path),
+        "redirect_uri": "http://127.0.0.1:8765/oauth/google/callback",
+        "sheet_name": sheet_name,
+        "steps": steps,
+    }
+
+
+def _google_credential_status(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {
+            "valid": False,
+            "detail": f"{_relative(path)} 파일이 필요합니다.",
+        }
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"valid": False, "detail": "Google 인증 파일이 JSON 형식이 아닙니다."}
+
+    raw = data.get("installed") or data.get("web") or data
+    client_id = str(raw.get("client_id") or "").strip() if isinstance(raw, dict) else ""
+    client_secret = str(raw.get("client_secret") or "").strip() if isinstance(raw, dict) else ""
+    if not client_id or not client_secret:
+        return {"valid": False, "detail": "Google 인증 파일에 client_id/client_secret이 없습니다."}
+    if "YOUR_GOOGLE" in client_id or "YOUR_GOOGLE" in client_secret:
+        return {"valid": False, "detail": "예시 파일이 아니라 Google Cloud에서 받은 JSON을 넣어야 합니다."}
+    return {"valid": True, "detail": "Google 인증 파일이 준비됐습니다."}
+
+
+def _google_token_status(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {
+            "valid": False,
+            "detail": "아직 Google 연결을 완료하지 않았습니다.",
+        }
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"valid": False, "detail": "Google 토큰 파일이 JSON 형식이 아닙니다."}
+    if not isinstance(data, dict) or not data.get("refresh_token"):
+        return {"valid": False, "detail": "Google 토큰에 refresh_token이 없습니다. Google 연결을 다시 실행하세요."}
+    return {"valid": True, "detail": "Google 연결이 완료됐습니다."}
 
 
 def _handle_google_oauth_callback(query: dict[str, list[str]]) -> str:
@@ -2232,6 +2319,69 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       align-items: center;
       margin-top: 10px;
     }
+    .setup-guide {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 13px;
+      margin-bottom: 14px;
+      background: var(--soft);
+    }
+    .setup-guide h3 {
+      margin: 0 0 6px;
+      font-size: 16px;
+    }
+    .setup-steps {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .setup-step {
+      border-left: 3px solid var(--amber);
+      background: #fff;
+      padding: 9px 10px;
+      min-height: 76px;
+    }
+    .setup-step.done {
+      border-left-color: var(--green);
+    }
+    .setup-step b {
+      display: block;
+      margin-bottom: 5px;
+    }
+    .setup-step span {
+      display: block;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .setup-meta {
+      display: grid;
+      gap: 5px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    code {
+      display: inline-block;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: #eef1f5;
+      color: var(--text);
+    }
+    .link-button {
+      display: inline-flex;
+      align-items: center;
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--text);
+      padding: 9px 12px;
+      font-weight: 700;
+      text-decoration: none;
+    }
     .file-name {
       color: var(--muted);
       font-size: 12px;
@@ -2261,6 +2411,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       .message-head { display: block; }
       .message-head span { display: block; margin-top: 4px; white-space: normal; }
       .stage-grid { grid-template-columns: 1fr; }
+      .setup-steps { grid-template-columns: 1fr; }
     }
     @media (max-width: 620px) {
       .steps, .cards, .form-grid { grid-template-columns: 1fr; }
@@ -2382,6 +2533,8 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     let templates = [];
     let approvalRows = [];
     let gmailRows = [];
+    let gmailCounts = {};
+    let googleSetup = null;
 
     function formData() {
       const data = {};
@@ -2619,6 +2772,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
 
     function showGmailCompare(counts = {}) {
       const target = document.getElementById("gmailTab");
+      gmailCounts = counts;
       const matched = counts.matched || 0;
       const needsReview = counts.needs_review || 0;
       const pending = counts.pending || 0;
@@ -2634,9 +2788,9 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
         </div>`;
 
       if (!gmailRows.length) {
-        target.innerHTML = `${summary}<p class="note">아직 확인할 Gmail 결과가 없습니다.</p>`;
+        target.innerHTML = `${googleGuideHtml()}${summary}<p class="note">아직 확인할 Gmail 결과가 없습니다.</p>`;
       } else {
-        target.innerHTML = `${summary}
+        target.innerHTML = `${googleGuideHtml()}${summary}
           <table>
             <thead><tr><th>확인</th><th>고객</th><th>Gmail 상태</th><th>메일</th><th>현재 단계</th><th>상세</th></tr></thead>
             <tbody>
@@ -2658,6 +2812,45 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       document.getElementById("fetchGmailInTabBtn").addEventListener("click", fetchGmailResults);
       document.getElementById("importGmailInTabBtn").addEventListener("click", importGmailResults);
       document.getElementById("compareGmailInTabBtn").addEventListener("click", () => compareGmailResults(true));
+      const statusButton = document.getElementById("refreshGoogleStatusBtn");
+      if (statusButton) statusButton.addEventListener("click", () => refreshGoogleStatus(true));
+      const connectButton = document.getElementById("connectGoogleGuideBtn");
+      if (connectButton) connectButton.addEventListener("click", connectGoogle);
+    }
+
+    function googleGuideHtml() {
+      const steps = googleSetup && googleSetup.steps ? googleSetup.steps : [
+        { label: "Google Cloud 설정", done: false, detail: "Google Sheets API와 OAuth Client를 준비합니다." },
+        { label: "비공개 시트 입력", done: false, detail: "Gmail 시트 링크를 입력합니다." },
+        { label: "Google 연결", done: false, detail: "Google 연결을 눌러 권한을 승인합니다." },
+        { label: "결과 가져오기 준비", done: false, detail: "준비가 끝나면 비공개 시트 가져오기를 누릅니다." }
+      ];
+      const redirectUri = googleSetup ? googleSetup.redirect_uri : `${window.location.origin}/oauth/google/callback`;
+      const credentialsPath = googleSetup ? googleSetup.credentials_path : "config/google_oauth_client.json";
+      const tokenPath = googleSetup ? googleSetup.token_path : "state/google_sheets_token.json";
+      const stepHtml = steps.map(step => `
+        <div class="setup-step ${step.done ? "done" : ""}">
+          <b>${step.done ? "완료" : "필요"} · ${safe(step.label)}</b>
+          <span>${safe(step.detail)}</span>
+        </div>`).join("");
+      return `
+        <section class="setup-guide">
+          <h3>비공개 Google Sheet 연결 안내</h3>
+          <p class="note">고객 이메일이 들어간 Sheet는 공개하지 않고 Google 로그인 권한으로 읽습니다.</p>
+          <div class="message-tools">
+            <a class="link-button" href="https://console.cloud.google.com/apis/library/sheets.googleapis.com" target="_blank" rel="noopener">Google Sheets API 열기</a>
+            <a class="link-button" href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">OAuth Client 만들기</a>
+            <button type="button" id="connectGoogleGuideBtn">Google 연결</button>
+            <button type="button" id="refreshGoogleStatusBtn">설정 상태 확인</button>
+          </div>
+          <div class="setup-meta">
+            <span>1. Google Cloud에서 Sheets API를 켜고 OAuth Client를 만듭니다.</span>
+            <span>2. 승인된 리디렉션 URI에 <code>${safe(redirectUri)}</code> 를 넣습니다.</span>
+            <span>3. 받은 JSON을 <code>${safe(credentialsPath)}</code> 로 저장합니다.</span>
+            <span>4. Google 연결 후 토큰은 <code>${safe(tokenPath)}</code> 에 저장됩니다.</span>
+          </div>
+          <div class="setup-steps">${stepHtml}</div>
+        </section>`;
     }
 
     function stageLabelForRow(row) {
@@ -2848,10 +3041,33 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
         });
         window.open(data.auth_url, "_blank", "noopener");
         note("새 창에서 Google 로그인을 완료한 뒤 이 화면으로 돌아오세요.");
+        await refreshGoogleStatus(false);
       } catch (error) {
         note(error.message);
       } finally {
         busy(false);
+      }
+    }
+
+    async function refreshGoogleStatus(showBusy = true) {
+      if (showBusy) {
+        busy(true);
+        note("Google 설정 상태를 확인하는 중입니다...");
+      }
+      try {
+        const data = await api("/api/google/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(formData())
+        });
+        googleSetup = data;
+        showGmailCompare(gmailCounts);
+        if (showBusy) note("Google 설정 상태를 확인했습니다.");
+      } catch (error) {
+        if (showBusy) note(error.message);
+        throw error;
+      } finally {
+        if (showBusy) busy(false);
       }
     }
 
@@ -3013,7 +3229,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       for (const button of document.querySelectorAll(".tab")) {
         button.addEventListener("click", () => switchTab(button.dataset.tab));
       }
-      showGmailCompare();
+      await refreshGoogleStatus(false);
       await plan();
       await refreshAll();
     }

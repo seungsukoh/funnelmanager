@@ -82,6 +82,14 @@ outbox/gmail_send_queue.csv
 - Google 토큰 파일: `state/google_sheets_token.json`
 - Gmail 시트 이름: `GmailQueue`
 
+`Gmail 확인` 탭에는 비공개 Google Sheet 연결 안내가 표시된다.
+
+- Google Sheets API 열기
+- OAuth Client 만들기
+- 승인된 리디렉션 URI 확인
+- Google 인증 파일/토큰 준비 상태 확인
+- Google 연결 실행
+
 반영 내용:
 
 - `sent`: 고객 상태와 다음 퍼널 단계 업데이트
