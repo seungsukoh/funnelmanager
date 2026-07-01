@@ -62,7 +62,9 @@ const state = {
   gmailCounts: {},
   googleSteps: [],
   googleStatusError: "",
-  gmailTestResult: null
+  gmailTestResult: null,
+  settingsOpen: false,
+  advancedSettingsOpen: false
 };
 
 function apiUrl(path) {
@@ -190,12 +192,15 @@ function render() {
         </div>
         <div class="header-actions">
           <span class="badge ${backendClass}">${backendText}</span>
+          <button type="button" data-action="open-settings">연결 설정</button>
           <button type="button" data-action="refresh">새로 확인</button>
         </div>
       </header>
 
+      ${state.settingsOpen ? renderSettingsPanel() : ""}
       ${state.backend.connected && state.backend.mode !== "cloud_preview" ? "" : renderBackendNotice()}
       ${state.notice ? `<div class="notice ${state.noticeTone}">${safe(state.notice)}</div>` : ""}
+      ${renderStatusMonitor(nextId)}
 
       <section class="workflow" aria-label="오늘 진행 순서">
         ${renderWorkflowCard("people", 1, "명단 확인", "받을 사람 확인", "명단 확인", nextId)}
@@ -206,11 +211,6 @@ function render() {
       </section>
 
       <section class="layout">
-        <aside class="side-panel">
-          <h2>운영 설정</h2>
-          ${renderConfigFields()}
-        </aside>
-
         <section class="work-panel">
           <nav class="tabs" aria-label="작업 탭">
             ${tabButton("people", "명단 확인")}
@@ -226,6 +226,119 @@ function render() {
   `;
 
   bindEvents();
+}
+
+function renderStatusMonitor(nextId) {
+  const database = googleStep("database");
+  const secret = googleStep("cloud");
+  const connect = googleStep("connect");
+  const gmailSend = googleStep("gmail_send");
+  const approved = Number(state.approvalCounts.approved || 0);
+  const needsReview = Number(state.gmailCounts.needs_review || 0);
+
+  return `
+    <section class="status-monitor" aria-label="운영 상태">
+      ${renderMonitorItem("저장소", database?.done ? "연결됨" : "확인 필요", database?.detail || "D1 상태를 확인하세요.", database?.done ? "ok" : "warn")}
+      ${renderMonitorItem("Google", connect?.done ? "연결됨" : secret?.done ? "승인 필요" : "설정 필요", connect?.detail || secret?.detail || "Google 연결 상태를 확인하세요.", connect?.done ? "ok" : "warn")}
+      ${renderMonitorItem("테스트 발송", state.gmailTestResult?.sent ? "완료" : gmailSend?.done ? "준비됨" : "대기", state.gmailTestResult?.sent ? `${state.gmailTestResult.recipient} 발송` : gmailSend?.detail || "테스트 발송 전", state.gmailTestResult?.sent || gmailSend?.done ? "ok" : "neutral")}
+      ${renderMonitorItem("오늘 승인", `${approved}건`, approved ? "승인된 명단이 있습니다." : "발송 승인 전입니다.", approved ? "ok" : "neutral")}
+      ${renderMonitorItem("다음 작업", workflowTitle(nextId), workflowStatus(nextId), "focus")}
+      ${renderMonitorItem("확인 필요", `${needsReview}건`, needsReview ? "Gmail 결과 확인이 필요합니다." : "처리할 오류가 없습니다.", needsReview ? "warn" : "ok")}
+    </section>`;
+}
+
+function renderMonitorItem(label, value, detail, tone) {
+  return `
+    <div class="monitor-item ${tone}">
+      <span>${safe(label)}</span>
+      <strong>${safe(value)}</strong>
+      <small>${safe(detail)}</small>
+    </div>`;
+}
+
+function workflowTitle(id) {
+  return {
+    people: "명단 확인",
+    flow: "단계별 메일",
+    approval: "발송 승인",
+    preview: "미리보기",
+    gmail: "Gmail 결과"
+  }[id] || "확인";
+}
+
+function googleStep(id) {
+  return state.googleSteps.find((step) => step.id === id);
+}
+
+function renderSettingsPanel() {
+  return `
+    <section class="settings-panel" aria-label="연결 설정">
+      <div class="settings-head">
+        <div>
+          <h2>연결 설정</h2>
+          <p>Google 연결과 운영 입력값을 확인합니다.</p>
+        </div>
+        <div class="button-row">
+          <button type="button" data-action="google-status">Google 상태 확인</button>
+          <button type="button" data-action="connect-google">Google 연결</button>
+          <button type="button" data-action="close-settings">닫기</button>
+        </div>
+      </div>
+      ${renderGoogleSteps()}
+      <div class="settings-grid">
+        <section class="settings-group">
+          <h3>운영 입력</h3>
+          ${renderConfigGroup([
+            ["campaign_id", "캠페인 이름"],
+            ["gmail_source", "Google Sheet 링크"],
+            ["gmail_sheet_name", "Sheet 이름"],
+            ["test_email", "테스트 수신자"]
+          ])}
+        </section>
+        <section class="settings-group">
+          <h3>명단과 기록</h3>
+          ${renderConfigGroup([
+            ["contacts", "명단 파일"],
+            ["funnel_config", "메일 흐름 파일"],
+            ["lead_state", "고객 상태 파일"]
+          ])}
+        </section>
+      </div>
+      <div class="advanced-settings">
+        <button type="button" data-action="toggle-advanced-settings">${state.advancedSettingsOpen ? "파일 설정 닫기" : "파일 설정 더보기"}</button>
+        ${state.advancedSettingsOpen ? `
+          <div class="settings-grid">
+            <section class="settings-group">
+              <h3>출력 파일</h3>
+              ${renderConfigGroup([
+                ["queue_output", "명단 확인 파일"],
+                ["approval_output", "발송 승인 파일"],
+                ["gmail_results", "Gmail 준비/결과 파일"],
+                ["timeline", "고객별 기록 파일"]
+              ])}
+            </section>
+            <section class="settings-group">
+              <h3>로컬 Google 파일</h3>
+              ${renderConfigGroup([
+                ["google_credentials", "Google 인증 파일"],
+                ["google_token", "Google 토큰 파일"]
+              ])}
+            </section>
+          </div>` : ""}
+      </div>
+    </section>`;
+}
+
+function renderConfigGroup(fields) {
+  return fields
+    .map(
+      ([key, label]) => `
+        <label class="field">
+          <span>${label}</span>
+          <input data-config="${key}" value="${safe(state.config[key] || "")}" />
+        </label>`
+    )
+    .join("");
 }
 
 function renderBackendNotice() {
@@ -265,34 +378,6 @@ function workflowAction(id) {
     preview: "preview",
     gmail: "compare-gmail"
   }[id];
-}
-
-function renderConfigFields() {
-  const fields = [
-    ["contacts", "명단 파일"],
-    ["funnel_config", "메일 흐름 파일"],
-    ["lead_state", "고객 상태 파일"],
-    ["campaign_id", "캠페인 이름"],
-    ["queue_output", "명단 확인 파일"],
-    ["approval_output", "발송 승인 파일"],
-    ["gmail_source", "Gmail 시트 링크"],
-    ["gmail_sheet_name", "Gmail 시트 이름"],
-    ["gmail_results", "Gmail 준비/결과 파일"],
-    ["test_email", "테스트 수신자"],
-    ["google_credentials", "Google 인증 파일"],
-    ["google_token", "Google 토큰 파일"],
-    ["timeline", "고객별 기록 파일"]
-  ];
-
-  return fields
-    .map(
-      ([key, label]) => `
-        <label class="field">
-          <span>${label}</span>
-          <input data-config="${key}" value="${safe(state.config[key] || "")}" />
-        </label>`
-    )
-    .join("");
 }
 
 function renderActiveTab() {
@@ -456,8 +541,7 @@ function renderGmailTab() {
           <p>승인된 고객을 Google Sheet에 올리고 발송 결과를 반영합니다.</p>
         </div>
         <div class="button-row">
-          <button type="button" data-action="google-status">Google 상태</button>
-          <button type="button" data-action="connect-google">Google 연결</button>
+          <button type="button" data-action="open-settings">연결 설정</button>
         </div>
       </div>
       <div class="gmail-actions">
@@ -469,7 +553,6 @@ function renderGmailTab() {
         <button type="button" data-action="compare-gmail">결과 확인</button>
       </div>
       ${renderGmailTestResult()}
-      ${renderGoogleSteps()}
       <div class="summary-row">
         ${summaryItem("같음", state.gmailCounts.matched || 0)}
         ${summaryItem("확인 필요", state.gmailCounts.needs_review || 0)}
@@ -617,6 +700,9 @@ function countApprovals(rows) {
 
 async function runAction(action) {
   const handlers = {
+    "open-settings": openSettings,
+    "close-settings": closeSettings,
+    "toggle-advanced-settings": toggleAdvancedSettings,
     refresh: refreshAll,
     plan,
     "load-flow": loadFlow,
@@ -624,8 +710,8 @@ async function runAction(action) {
     "prepare-approval": prepareApproval,
     "save-approval": saveApproval,
     preview,
-    "google-status": googleStatus,
-    "connect-google": connectGoogle,
+    "google-status": () => googleStatus({ activate: !state.settingsOpen }),
+    "connect-google": () => connectGoogle({ activate: !state.settingsOpen }),
     "export-gmail": exportGmail,
     "upload-gmail": uploadGmail,
     "fetch-private-gmail": fetchPrivateGmail,
@@ -638,6 +724,23 @@ async function runAction(action) {
 
 function messageFrom(data, fallback) {
   return data.message || fallback;
+}
+
+async function openSettings() {
+  state.settingsOpen = true;
+  state.advancedSettingsOpen = false;
+  render();
+}
+
+async function closeSettings() {
+  formData();
+  state.settingsOpen = false;
+  render();
+}
+
+async function toggleAdvancedSettings() {
+  state.advancedSettingsOpen = !state.advancedSettingsOpen;
+  render();
 }
 
 async function withBusy(message, task) {
@@ -732,7 +835,7 @@ async function preview() {
   });
 }
 
-async function googleStatus() {
+async function googleStatus({ activate = true } = {}) {
   await withBusy("Google 연결 상태를 확인하는 중입니다.", async () => {
     try {
       const data = await api("/api/google/status", {
@@ -741,10 +844,10 @@ async function googleStatus() {
       });
       state.googleStatusError = "";
       state.googleSteps = data.steps || [];
-      state.activeTab = "gmail";
+      if (activate) state.activeTab = "gmail";
       setNotice(messageFrom(data, "Google 연결 상태를 확인했습니다."), "success");
     } catch (error) {
-      state.activeTab = "gmail";
+      if (activate) state.activeTab = "gmail";
       state.googleSteps = [];
       state.googleStatusError = error.message;
       throw error;
@@ -752,7 +855,7 @@ async function googleStatus() {
   });
 }
 
-async function connectGoogle() {
+async function connectGoogle({ activate = true } = {}) {
   await withBusy("Google 연결 주소를 만드는 중입니다.", async () => {
     const redirectOrigin = apiBase || window.location.origin;
     const data = await api("/api/google/auth-url", {
@@ -763,7 +866,7 @@ async function connectGoogle() {
       })
     });
     if (data.auth_url) window.open(data.auth_url, "_blank", "noopener");
-    state.activeTab = "gmail";
+    if (activate) state.activeTab = "gmail";
     setNotice(messageFrom(data, data.auth_url ? "새 창에서 Google 연결을 완료하세요." : "Google 연결 준비 상태를 확인했습니다."), "success");
   });
 }
@@ -882,13 +985,15 @@ function fileToBase64(file) {
 
 async function refreshAll() {
   await withBusy("현재 상태를 확인하는 중입니다.", async () => {
+    const previousTab = state.activeTab;
     const defaults = await api("/api/defaults");
     state.config = { ...fallbackDefaults, ...defaults, ...state.config };
     if (state.backend.mode !== "cloud_preview") {
       state.backend = { connected: true, error: "", mode: "local", message: "" };
     }
     await loadFlow();
-    await googleStatus();
+    await googleStatus({ activate: false });
+    state.activeTab = previousTab;
     setNotice("현재 상태를 확인했습니다.", "success");
   });
 }
@@ -900,7 +1005,8 @@ async function boot() {
     if (state.backend.mode !== "cloud_preview") {
       state.backend = { connected: true, error: "", mode: "local", message: "" };
     }
-    await Promise.allSettled([loadFlow(), googleStatus()]);
+    await Promise.allSettled([loadFlow(), googleStatus({ activate: false })]);
+    state.activeTab = "people";
     setNotice("");
   } catch (error) {
     state.backend = { connected: false, error: error.message, mode: "none", message: "" };

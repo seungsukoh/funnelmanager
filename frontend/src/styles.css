@@ -168,6 +168,108 @@ h3 {
   color: #9f1239;
 }
 
+.settings-panel,
+.status-monitor {
+  margin-top: 16px;
+}
+
+.settings-panel {
+  padding: 16px;
+  border: 1px solid #cfd8e6;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.settings-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 14px;
+}
+
+.settings-head p {
+  margin-bottom: 0;
+  color: #5b687a;
+  line-height: 1.45;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-group {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #e0e6ef;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.advanced-settings {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.status-monitor {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.monitor-item {
+  min-height: 98px;
+  padding: 12px;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.monitor-item.ok {
+  border-color: #bbdfc8;
+  background: #effaf2;
+}
+
+.monitor-item.warn {
+  border-color: #ead08a;
+  background: #fff8df;
+}
+
+.monitor-item.focus {
+  border-color: #9fbce4;
+  background: #edf5ff;
+}
+
+.monitor-item.neutral {
+  background: #f8fafc;
+}
+
+.monitor-item span,
+.monitor-item small {
+  display: block;
+}
+
+.monitor-item span {
+  color: #5b687a;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.monitor-item strong {
+  display: block;
+  margin: 6px 0;
+  font-size: 1.12rem;
+}
+
+.monitor-item small {
+  color: #5b687a;
+  line-height: 1.4;
+}
+
 .workflow {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -176,7 +278,6 @@ h3 {
 }
 
 .workflow-card,
-.side-panel,
 .work-panel,
 .flow-step {
   border: 1px solid #d8e0ea;
@@ -223,22 +324,11 @@ h3 {
 }
 
 .layout {
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
+  display: block;
 }
 
-.side-panel,
 .work-panel {
   padding: 18px;
-}
-
-.side-panel {
-  position: sticky;
-  top: 16px;
-  display: grid;
-  gap: 10px;
 }
 
 .field {
@@ -468,16 +558,16 @@ tbody tr:last-child td {
 }
 
 @media (max-width: 1120px) {
+  .status-monitor {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .workflow {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .layout {
+  .settings-grid {
     grid-template-columns: 1fr;
-  }
-
-  .side-panel {
-    position: static;
   }
 }
 
@@ -489,11 +579,13 @@ tbody tr:last-child td {
 
   .app-header,
   .panel-title,
+  .settings-head,
   .flow-head {
     grid-template-columns: 1fr;
   }
 
   .workflow,
+  .status-monitor,
   .summary-row,
   .checklist,
   .flow-grid {
