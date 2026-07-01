@@ -25,8 +25,8 @@ Cloudflare Dashboard에서 설정한다.
 | 항목 | 값 |
 | --- | --- |
 | Framework preset | Vite |
-| Root directory | `frontend` |
-| Build command | `npm ci && npm run build` |
+| Root directory | 비워 둠 |
+| Build command | `npm run build` |
 | Build output directory | `dist` |
 
 환경 변수에는 다음 값을 추가한다.
@@ -37,12 +37,12 @@ Cloudflare Dashboard에서 설정한다.
 
 이후 `main`에 푸시하면 Cloudflare Pages가 자동으로 새 버전을 배포한다.
 
-## 루트 디렉터리로 빌드하는 경우
+## 루트 디렉터리로 빌드하는 이유
 
-Cloudflare가 `/opt/buildhome/repo/package.json`을 찾는 오류를 내면 Root directory가 `frontend`로 적용되지 않은 상태다.
-이 경우에도 배포가 가능하도록 저장소 루트에 빌드 스크립트를 둔다.
+Cloudflare Pages Functions는 저장소 루트의 `functions/` 폴더를 사용한다.
+따라서 화면과 미리보기 API를 같이 배포하려면 Root directory를 비워 두고 루트에서 빌드하는 구성이 가장 단순하다.
 
-Cloudflare 설정을 다음처럼 바꾼다.
+Cloudflare 설정:
 
 | 항목 | 값 |
 | --- | --- |
@@ -51,6 +51,9 @@ Cloudflare 설정을 다음처럼 바꾼다.
 | Build output directory | `dist` |
 
 루트 빌드는 내부적으로 `frontend` 의존성을 설치하고 Vite 결과물을 루트 `dist/`에 만든다.
+`functions/`는 Cloudflare Pages가 API로 배포한다.
+
+Root directory를 `frontend`로 설정하면 정적 화면만 배포되고 `functions/` API는 빠진다.
 
 ## 환경 변수
 

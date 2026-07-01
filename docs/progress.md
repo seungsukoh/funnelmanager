@@ -100,6 +100,7 @@
 - Cloudflare Pages 루트 빌드 오류 대응: 루트 `package.json`에서 `frontend` 빌드 후 `dist/` 생성 지원
 - Cloudflare 화면을 임시 배포 확인 화면에서 실제 퍼널 메일 운영 화면으로 교체
 - Vite 화면에서 명단 확인/단계별 메일/발송 승인/미리보기/Gmail 결과 탭과 Python API 호출 연결
+- Cloudflare Pages Functions 미리보기 백엔드 추가: 명단/메일 흐름/승인/미리보기/Gmail 결과 샘플 API 제공
 
 ### 진행 중
 
@@ -109,6 +110,7 @@
 - 비공개 Gmail Sheet OAuth를 실제 운영 Google 계정으로 검증 준비
 - 쉬운 운영 흐름 기준으로 사용자 테스트 준비
 - Cloudflare 배포 후 사용할 백엔드 구조 검토
+- Cloudflare Functions 미리보기 백엔드에서 실제 D1/R2/Google OAuth 백엔드로 전환 설계
 
 ### 다음 작업
 

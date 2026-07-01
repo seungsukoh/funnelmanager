@@ -43,7 +43,7 @@ const statusLabels = {
 
 const state = {
   config: { ...fallbackDefaults },
-  backend: { connected: false, error: "" },
+  backend: { connected: false, error: "", mode: "none", message: "" },
   activeTab: "people",
   notice: "",
   noticeTone: "info",
@@ -85,7 +85,20 @@ async function api(path, options = {}) {
   if (!response.ok || payload.ok === false) {
     throw new Error(payload.error || `API ${response.status}`);
   }
+  rememberBackend(payload);
   return payload;
+}
+
+function rememberBackend(payload) {
+  if (!payload || typeof payload !== "object") return;
+  if (payload.cloud_mode) {
+    state.backend = {
+      connected: true,
+      error: "",
+      mode: String(payload.cloud_mode),
+      message: String(payload.message || payload.cloud_notice || "")
+    };
+  }
 }
 
 function safe(value) {
@@ -156,8 +169,13 @@ function tabButton(id, label) {
 
 function render() {
   const nextId = nextStepId();
-  const backendClass = state.backend.connected ? "ok" : "warn";
-  const backendText = state.backend.connected ? "백엔드 연결됨" : "백엔드 연결 필요";
+  const backendClass = state.backend.connected && state.backend.mode !== "cloud_preview" ? "ok" : "warn";
+  const backendText =
+    state.backend.mode === "cloud_preview"
+      ? "클라우드 미리보기"
+      : state.backend.connected
+        ? "백엔드 연결됨"
+        : "백엔드 연결 필요";
 
   document.querySelector("#app").innerHTML = `
     <main class="page">
@@ -172,7 +190,7 @@ function render() {
         </div>
       </header>
 
-      ${state.backend.connected ? "" : renderBackendNotice()}
+      ${state.backend.connected && state.backend.mode !== "cloud_preview" ? "" : renderBackendNotice()}
       ${state.notice ? `<div class="notice ${state.noticeTone}">${safe(state.notice)}</div>` : ""}
 
       <section class="workflow" aria-label="오늘 진행 순서">
@@ -207,6 +225,14 @@ function render() {
 }
 
 function renderBackendNotice() {
+  if (state.backend.mode === "cloud_preview") {
+    return `
+      <section class="backend-notice">
+        <strong>Cloudflare 미리보기 백엔드가 연결됐습니다.</strong>
+        <span>명단 확인과 화면 흐름은 샘플 데이터로 확인할 수 있습니다. 실제 발송과 Google Sheet 연결은 저장소와 비밀키를 붙이는 다음 단계가 필요합니다.</span>
+        ${state.backend.message ? `<small>${safe(state.backend.message)}</small>` : ""}
+      </section>`;
+  }
   return `
     <section class="backend-notice">
       <strong>Cloudflare 화면은 열렸습니다.</strong>
@@ -569,6 +595,10 @@ async function runAction(action) {
   await handlers[action]?.();
 }
 
+function messageFrom(data, fallback) {
+  return data.message || fallback;
+}
+
 async function withBusy(message, task) {
   setNotice(message);
   setBusy(true);
@@ -592,7 +622,7 @@ async function plan() {
     state.queueRows = data.rows || [];
     state.queueCounts = data.counts || {};
     state.activeTab = "people";
-    setNotice(`명단 확인 완료: ${countsText(state.queueCounts)}`, "success");
+    setNotice(messageFrom(data, `명단 확인 완료: ${countsText(state.queueCounts)}`), "success");
   });
 }
 
@@ -604,7 +634,7 @@ async function loadFlow() {
     state.flowSteps = data.steps || [];
     state.templates = data.templates || [];
     state.activeTab = "flow";
-    setNotice(`메일 흐름 ${state.flowSteps.length}개를 불러왔습니다.`, "success");
+    setNotice(messageFrom(data, `메일 흐름 ${state.flowSteps.length}개를 불러왔습니다.`), "success");
   });
 }
 
@@ -617,7 +647,7 @@ async function saveFlow() {
     state.flowSteps = data.steps || [];
     state.templates = data.templates || [];
     state.activeTab = "flow";
-    setNotice("메일 흐름을 저장했습니다.", "success");
+    setNotice(messageFrom(data, "메일 흐름을 저장했습니다."), "success");
   });
 }
 
@@ -631,7 +661,7 @@ async function prepareApproval() {
     state.approvalCounts = data.counts || countApprovals(state.approvalRows);
     state.queueCounts = data.queue_counts || state.queueCounts;
     state.activeTab = "approval";
-    setNotice(`승인 대상 ${state.approvalRows.length}건을 만들었습니다.`, "success");
+    setNotice(messageFrom(data, `승인 대상 ${state.approvalRows.length}건을 만들었습니다.`), "success");
   });
 }
 
@@ -644,7 +674,7 @@ async function saveApproval() {
     state.approvalRows = data.rows || [];
     state.approvalCounts = data.counts || countApprovals(state.approvalRows);
     state.activeTab = "approval";
-    setNotice(`승인 저장 완료: ${state.approvalCounts.approved || 0}건`, "success");
+    setNotice(messageFrom(data, `승인 저장 완료: ${state.approvalCounts.approved || 0}건`), "success");
   });
 }
 
@@ -657,7 +687,7 @@ async function preview() {
     state.previewSummary = data.summary || {};
     state.previewRows = data.report_rows || [];
     state.activeTab = "preview";
-    setNotice(`미리보기 완료: ${state.previewSummary.sent || 0}건`, "success");
+    setNotice(messageFrom(data, `미리보기 완료: ${state.previewSummary.sent || 0}건`), "success");
   });
 }
 
@@ -669,7 +699,7 @@ async function googleStatus() {
     });
     state.googleSteps = data.steps || [];
     state.activeTab = "gmail";
-    setNotice("Google 연결 상태를 확인했습니다.", "success");
+    setNotice(messageFrom(data, "Google 연결 상태를 확인했습니다."), "success");
   });
 }
 
@@ -683,9 +713,9 @@ async function connectGoogle() {
         redirect_uri: `${redirectOrigin}/oauth/google/callback`
       })
     });
-    window.open(data.auth_url, "_blank", "noopener");
+    if (data.auth_url) window.open(data.auth_url, "_blank", "noopener");
     state.activeTab = "gmail";
-    setNotice("새 창에서 Google 연결을 완료하세요.", "success");
+    setNotice(messageFrom(data, data.auth_url ? "새 창에서 Google 연결을 완료하세요." : "Google 연결 준비 상태를 확인했습니다."), "success");
   });
 }
 
@@ -696,7 +726,7 @@ async function exportGmail() {
       body: JSON.stringify(formData())
     });
     state.activeTab = "gmail";
-    setNotice(`Gmail 발송 준비 완료: ${data.summary?.pending || 0}건`, "success");
+    setNotice(messageFrom(data, `Gmail 발송 준비 완료: ${data.summary?.pending || 0}건`), "success");
   });
 }
 
@@ -707,7 +737,7 @@ async function uploadGmail() {
       body: JSON.stringify(formData())
     });
     state.activeTab = "gmail";
-    setNotice(`비공개 시트 업로드 완료: ${data.summary?.rows || 0}건`, "success");
+    setNotice(messageFrom(data, `비공개 시트 업로드 완료: ${data.summary?.rows || 0}건`), "success");
   });
 }
 
@@ -718,7 +748,7 @@ async function fetchPrivateGmail() {
       body: JSON.stringify(formData())
     });
     state.activeTab = "gmail";
-    setNotice(`Gmail 결과 가져오기 완료: ${data.summary?.rows || 0}건`, "success");
+    setNotice(messageFrom(data, `Gmail 결과 가져오기 완료: ${data.summary?.rows || 0}건`), "success");
   });
 }
 
@@ -730,7 +760,7 @@ async function importGmail() {
     });
     state.activeTab = "gmail";
     await compareGmail(false);
-    setNotice(`Gmail 결과 반영 완료: 성공 ${data.summary?.imported || 0}건`, "success");
+    setNotice(messageFrom(data, `Gmail 결과 반영 완료: 성공 ${data.summary?.imported || 0}건`), "success");
   });
 }
 
@@ -743,7 +773,7 @@ async function compareGmail(showBusy = true) {
     state.gmailRows = data.rows || [];
     state.gmailCounts = data.counts || {};
     state.activeTab = "gmail";
-    setNotice(`Gmail 결과 확인 완료: ${countsText(state.gmailCounts)}`, "success");
+    setNotice(messageFrom(data, `Gmail 결과 확인 완료: ${countsText(state.gmailCounts)}`), "success");
   };
   if (showBusy) await withBusy("Gmail 결과를 확인하는 중입니다.", runner);
   else await runner();
@@ -780,7 +810,9 @@ async function refreshAll() {
   await withBusy("현재 상태를 확인하는 중입니다.", async () => {
     const defaults = await api("/api/defaults");
     state.config = { ...fallbackDefaults, ...defaults, ...state.config };
-    state.backend = { connected: true, error: "" };
+    if (state.backend.mode !== "cloud_preview") {
+      state.backend = { connected: true, error: "", mode: "local", message: "" };
+    }
     await loadFlow();
     await googleStatus();
     setNotice("현재 상태를 확인했습니다.", "success");
@@ -791,11 +823,13 @@ async function boot() {
   try {
     const defaults = await api("/api/defaults");
     state.config = { ...fallbackDefaults, ...defaults };
-    state.backend = { connected: true, error: "" };
+    if (state.backend.mode !== "cloud_preview") {
+      state.backend = { connected: true, error: "", mode: "local", message: "" };
+    }
     await Promise.allSettled([loadFlow(), googleStatus()]);
     setNotice("");
   } catch (error) {
-    state.backend = { connected: false, error: error.message };
+    state.backend = { connected: false, error: error.message, mode: "none", message: "" };
     setNotice("백엔드 연결 후 실제 실행 버튼을 사용할 수 있습니다.", "info");
   } finally {
     state.busy = false;
