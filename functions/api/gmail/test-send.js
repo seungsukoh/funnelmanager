@@ -44,7 +44,8 @@ export async function onRequestPost({ request, env }) {
       recipient: result.recipient,
       subject: result.subject,
       message_id: result.message_id,
-      mode: "test"
+      mode: "test",
+      sent_at: new Date().toISOString()
     },
     message: `테스트 메일을 ${result.recipient} 주소로 발송했습니다.`
   }, 200, env);

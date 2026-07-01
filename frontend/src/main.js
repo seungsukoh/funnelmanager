@@ -61,7 +61,8 @@ const state = {
   gmailRows: [],
   gmailCounts: {},
   googleSteps: [],
-  googleStatusError: ""
+  googleStatusError: "",
+  gmailTestResult: null
 };
 
 function apiUrl(path) {
@@ -467,6 +468,7 @@ function renderGmailTab() {
         <button class="primary" type="button" data-action="import-gmail">결과 반영</button>
         <button type="button" data-action="compare-gmail">결과 확인</button>
       </div>
+      ${renderGmailTestResult()}
       ${renderGoogleSteps()}
       <div class="summary-row">
         ${summaryItem("같음", state.gmailCounts.matched || 0)}
@@ -475,6 +477,22 @@ function renderGmailTab() {
       </div>
       ${renderTable(state.gmailRows, ["review_status", "email", "gmail_status", "template", "lead_status", "detail"], "아직 Gmail 결과를 확인하지 않았습니다.")}
     </section>`;
+}
+
+function renderGmailTestResult() {
+  if (!state.gmailTestResult) return "";
+  const result = state.gmailTestResult;
+  const title = result.sent ? "최근 테스트 발송 완료" : "최근 테스트 발송 미완료";
+  const detail = result.sent
+    ? `${result.recipient} 주소로 테스트 메일을 보냈습니다.${result.sentAt ? ` (${result.sentAt})` : ""}`
+    : result.message || "테스트 발송이 완료되지 않았습니다.";
+  return `
+    <div class="checklist">
+      <div class="${result.sent ? "done" : ""}">
+        <strong>${safe(title)}</strong>
+        <span>${safe(detail)}</span>
+      </div>
+    </div>`;
 }
 
 function renderGoogleSteps() {
@@ -793,6 +811,13 @@ async function testGmail() {
       state.googleStatusError = "";
       state.googleSteps = data.steps;
     }
+    state.gmailTestResult = {
+      sent: Boolean(data.summary?.sent),
+      recipient: data.summary?.recipient || state.config.test_email || "",
+      message: messageFrom(data, "테스트 발송이 완료되지 않았습니다."),
+      messageId: data.summary?.message_id || "",
+      sentAt: data.summary?.sent_at || ""
+    };
     state.activeTab = "gmail";
     setNotice(
       messageFrom(data, `테스트 메일 발송 완료: ${data.summary?.recipient || ""}`),
