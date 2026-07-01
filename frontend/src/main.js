@@ -184,8 +184,9 @@ function workflowStatus(id) {
 
 function contactImportText() {
   if (!state.contactImport) return "엑셀/CSV를 불러온 뒤 보낼 사람을 선택하세요.";
+  const sheet = state.contactImport.sheetName ? ` / ${state.contactImport.sheetName}` : "";
   const skipped = state.contactImport.skipped ? ` / ${state.contactImport.skipped}줄 건너뜀` : "";
-  return `${state.contactImport.filename} / ${state.contactImport.imported}건 저장${skipped}`;
+  return `${state.contactImport.filename}${sheet} / ${state.contactImport.imported}건 저장${skipped}`;
 }
 
 function nextStepId() {
@@ -457,13 +458,14 @@ function renderContactImportReview() {
   const draft = state.contactImportDraft;
   if (!draft) return "";
   const disabled = draft.validCount ? "" : "disabled";
+  const sourceLabel = draft.sheetName ? `${draft.filename} · ${draft.sheetName}` : draft.filename;
   return `
     <section class="import-review" aria-label="새 명단 확인">
       <div class="import-review-head">
         <div>
           <span class="mini-badge">새 명단 확인</span>
           <h3>저장 전에 앱이 찾은 열을 확인하세요</h3>
-          <p>${safe(draft.filename)}에서 이메일 ${draft.validCount}건을 찾았습니다. 맞지 않으면 아래에서 바로 바꿀 수 있습니다.</p>
+          <p>${safe(sourceLabel)}에서 이메일 ${draft.validCount}건을 찾았습니다. 맞지 않으면 아래에서 바로 바꿀 수 있습니다.</p>
         </div>
         <div class="button-row">
           <button type="button" data-action="clear-contact-draft">다시 선택</button>
@@ -1089,6 +1091,7 @@ async function saveContactImportDraft() {
     state.previewSummary = null;
     state.contactImport = {
       filename: state.contactImportDraft.filename,
+      sheetName: state.contactImportDraft.sheetName || "",
       received: data.summary?.received || rows.length,
       imported: data.summary?.imported || 0,
       skipped: state.contactImportDraft.skippedCount
@@ -1168,19 +1171,71 @@ function fileToBase64(file) {
 
 async function tableFromContactsFile(file) {
   const name = file.name.toLowerCase();
-  if (name.endsWith(".xlsx")) return readXlsxFile(file);
+  if (name.endsWith(".xlsx")) return tableFromXlsxFile(file);
+  if (name.endsWith(".xls")) {
+    throw new Error("구형 .xls 파일은 브라우저에서 직접 읽을 수 없습니다. Excel에서 .xlsx 또는 CSV로 다시 저장한 뒤 불러오세요.");
+  }
   if (name.endsWith(".csv")) return parseCsv(await file.text());
   throw new Error("엑셀 .xlsx 또는 CSV 파일만 불러올 수 있습니다.");
 }
 
-function buildContactImportDraft(filename, table) {
+async function tableFromXlsxFile(file) {
+  let result;
+  try {
+    result = await readXlsxFile(file);
+  } catch {
+    throw new Error("엑셀 파일을 읽지 못했습니다. 암호가 걸린 파일이거나 실제 .xlsx 형식이 아닐 수 있습니다.");
+  }
+
+  if (looksLikeWorkbookSheets(result)) {
+    const candidates = result
+      .map((sheet, index) => ({
+        rows: sheet.data || [],
+        sheetName: sheet.sheet || `Sheet ${index + 1}`,
+        sheetCount: result.length,
+        score: contactTableScore(sheet.data || [])
+      }))
+      .sort((a, b) => b.score - a.score);
+    return candidates[0] || { rows: [], sheetName: "", sheetCount: result.length };
+  }
+
+  return { rows: result, sheetName: "", sheetCount: 1 };
+}
+
+function looksLikeWorkbookSheets(value) {
+  return Array.isArray(value) && value.some((item) => item && Array.isArray(item.data));
+}
+
+function contactTableScore(table) {
+  const rows = normalizeContactTable(table);
+  let emailCells = 0;
+  let headerHits = 0;
+  for (const row of rows.slice(0, 40)) {
+    for (const cell of row) {
+      if (isEmail(cell)) emailCells += 1;
+      headerHits += headerCandidateScore(cell, "email") + headerCandidateScore(cell, "name");
+    }
+  }
+  return emailCells * 20 + headerHits * 3 + rows.length;
+}
+
+function buildContactImportDraft(filename, source) {
+  const table = Array.isArray(source) ? source : source?.rows;
   const tableRows = normalizeContactTable(table);
-  if (!tableRows.length) throw new Error("명단 파일에서 읽을 수 있는 내용이 없습니다.");
+  if (!tableRows.length) {
+    const prefix = source?.sheetCount > 1 ? `엑셀의 ${source.sheetCount}개 시트를 확인했지만` : "명단 파일에서";
+    throw new Error(`${prefix} 값이 들어 있는 셀을 찾지 못했습니다. 명단이 이미지/피벗 결과가 아니라 실제 셀 값으로 들어 있는지 확인하세요.`);
+  }
   const inferred = inferContactColumns(tableRows);
+  const sheetName = Array.isArray(source) ? "" : source?.sheetName || "";
+  const sheetNote = sheetName && source?.sheetCount > 1 ? [`여러 시트 중 '${sheetName}' 시트를 읽었습니다.`] : [];
   return refreshContactImportDraft({
     filename,
+    sheetName,
+    sheetCount: Array.isArray(source) ? 1 : source?.sheetCount || 1,
     tableRows,
-    ...inferred
+    ...inferred,
+    baseNotes: [...(inferred.baseNotes || []), ...sheetNote]
   });
 }
 
