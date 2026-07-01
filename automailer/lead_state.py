@@ -63,10 +63,11 @@ class LeadStateStore:
         template_name: str,
         rule_name: str,
         updates: dict[str, Any],
+        occurred_at: datetime | None = None,
     ) -> None:
         contacts = self.state.setdefault("contacts", {})
         lead = dict(contacts.get(email, {}))
-        now = datetime.now(timezone.utc)
+        now = occurred_at or datetime.now(timezone.utc)
 
         if updates.get("set_status"):
             lead["status"] = str(updates["set_status"])

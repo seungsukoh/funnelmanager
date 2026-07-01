@@ -57,6 +57,22 @@ outbox/web_dashboard_approval.csv
 
 예약 실행기는 이 파일에서 `approved=yes`인 행만 처리한다.
 
+## Gmail 결과 반영
+
+Gmail + Apps Script로 발송한 뒤 Google Sheet의 결과 CSV를 `Gmail 결과 파일`에 지정하고 `Gmail 결과 반영`을 누른다.
+
+기본 파일:
+
+```text
+outbox/gmail_send_queue.csv
+```
+
+반영 내용:
+
+- `sent`: 고객 상태와 다음 퍼널 단계 업데이트
+- `failed`: 실패 기록만 남기고 다음 단계로 이동하지 않음
+- `pending`: 아직 보내지 않은 상태이므로 건너뜀
+
 ## 기본 샘플 설정
 
 - 연락처: `samples/funnel_contacts.csv`

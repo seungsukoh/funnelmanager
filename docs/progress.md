@@ -79,13 +79,16 @@
 - Gmail 발송용 큐 export CLI 추가: `export_gmail_queue.py`
 - Gmail Apps Script 발송 스크립트 추가: `integrations/gmail_apps_script_sender.js`
 - Gmail 운영 가이드 작성: `docs/gmail_apps_script.md`
+- Gmail 발송 결과 import CLI 추가: `import_gmail_results.py`
+- Gmail 결과 import 샘플 추가: `samples/gmail_results.csv`
+- 웹 화면에 `Gmail 결과 반영` 버튼/API 추가
 
 ### 진행 중
 
 - Outlook display 모드 사용자 테스트 준비
 - 실제 provider 발송 후 lead_state 업데이트 검증 준비
 - Windows 작업 스케줄러 연결 절차 검증 준비
-- Gmail 발송 결과를 로컬 고객 상태로 다시 가져오는 절차 설계
+- Gmail 발송 결과 import를 실제 운영 Google Sheet CSV로 검증 준비
 
 ### 다음 작업
 
@@ -95,7 +98,7 @@
 - Word 본문 변환에서 표/서식 보존 범위 사용자 검증
 - 웹 화면에서 테스트 수신자 입력 후 승인 대상만 Outlook display로 여는 기능 추가
 - Windows 작업 스케줄러 등록/해제 스크립트 추가
-- Gmail Sheet 발송 결과를 `lead_state`와 `timeline`에 반영하는 import 기능 추가
+- Gmail 발송 결과 import 후 Google Sheet 상태와 로컬 고객 상태 비교 화면 추가
 
 ### 리스크
 

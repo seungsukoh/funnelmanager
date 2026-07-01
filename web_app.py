@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 from automailer.campaign import CampaignConfig, run_campaign
 from automailer.planner import PlanConfig, build_send_queue
 from automailer.word_template import load_word_template_bytes
+from import_gmail_results import import_results as import_gmail_results
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -28,6 +29,7 @@ DEFAULTS = {
     "campaign_id": "web-dashboard-demo",
     "queue_output": "outbox/web_dashboard_queue.csv",
     "approval_output": "outbox/web_dashboard_approval.csv",
+    "gmail_results": "outbox/gmail_send_queue.csv",
     "outbox": "outbox",
 }
 
@@ -113,6 +115,10 @@ def make_handler():
                     return
                 if parsed.path == "/api/approval/save":
                     result = _handle_save_approval(payload)
+                    self._json_response(200, result)
+                    return
+                if parsed.path == "/api/gmail/import":
+                    result = _handle_import_gmail_results(payload)
                     self._json_response(200, result)
                     return
                 self._json_response(404, {"ok": False, "error": "not found"})
@@ -391,6 +397,19 @@ def _handle_save_approval(payload: dict[str, object]) -> dict[str, object]:
         "rows": approval_rows,
         "counts": _count_approval(approval_rows),
     }
+
+
+def _handle_import_gmail_results(payload: dict[str, object]) -> dict[str, object]:
+    config = _request_config(payload)
+    summary = import_gmail_results(
+        results_path=_safe_path(config["gmail_results"]),
+        funnel_config_path=_safe_path(config["funnel_config"]),
+        lead_state_path=_safe_path(config["lead_state"]),
+        db_path=_safe_path(config["send_history"]),
+        timeline_path=_safe_path(config["timeline"]),
+        default_campaign_id=config["campaign_id"],
+    )
+    return {"ok": True, "summary": summary}
 
 
 def _request_config(payload: dict[str, object]) -> dict[str, str]:
@@ -2137,6 +2156,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
         <button id="planBtn">받을 사람 확인</button>
         <button id="dryRunBtn" class="primary">메일 미리보기 만들기</button>
         <button id="prepareApprovalBtn">발송 승인 준비</button>
+        <button id="importGmailBtn">Gmail 결과 반영</button>
         <button id="saveFlowBtn">단계별 메일 저장</button>
         <button id="refreshBtn">화면 새로고침</button>
       </div>
@@ -2175,6 +2195,8 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
             <input id="queue_output">
             <label for="approval_output">발송 승인 파일</label>
             <input id="approval_output">
+            <label for="gmail_results">Gmail 결과 파일</label>
+            <input id="gmail_results">
             <label for="timeline">고객별 기록 파일</label>
             <input id="timeline">
           </details>
@@ -2206,7 +2228,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
   </main>
 
   <script>
-    const fields = ["contacts", "funnel_config", "lead_state", "campaign_id", "queue_output", "approval_output", "timeline"];
+    const fields = ["contacts", "funnel_config", "lead_state", "campaign_id", "queue_output", "approval_output", "gmail_results", "timeline"];
     const statusLabels = {
       ready: "보낼 예정",
       sent: "미리보기 완료",
@@ -2234,7 +2256,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     }
 
     function busy(value) {
-      for (const id of ["planBtn", "dryRunBtn", "prepareApprovalBtn", "saveFlowBtn", "refreshBtn"]) {
+      for (const id of ["planBtn", "dryRunBtn", "prepareApprovalBtn", "importGmailBtn", "saveFlowBtn", "refreshBtn"]) {
         const element = document.getElementById(id);
         if (element) element.disabled = value;
       }
@@ -2631,6 +2653,24 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       }
     }
 
+    async function importGmailResults() {
+      busy(true);
+      note("Gmail 발송 결과를 고객 상태에 반영하는 중입니다...");
+      try {
+        const data = await api("/api/gmail/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(formData())
+        });
+        await Promise.all([refreshState(), refreshHistory()]);
+        note(`Gmail 결과 반영 완료: 성공 ${data.summary.imported}건, 실패 ${data.summary.failed}건, 건너뜀 ${data.summary.skipped}건`);
+      } catch (error) {
+        note(error.message);
+      } finally {
+        busy(false);
+      }
+    }
+
     async function refreshPeople() {
       const path = encodeURIComponent(document.getElementById("queue_output").value);
       const data = await api(`/api/queue?path=${path}`);
@@ -2700,6 +2740,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       document.getElementById("planBtn").addEventListener("click", plan);
       document.getElementById("dryRunBtn").addEventListener("click", preview);
       document.getElementById("prepareApprovalBtn").addEventListener("click", prepareApproval);
+      document.getElementById("importGmailBtn").addEventListener("click", importGmailResults);
       document.getElementById("saveFlowBtn").addEventListener("click", saveFlow);
       document.getElementById("refreshBtn").addEventListener("click", refreshAll);
       document.getElementById("funnel_config").addEventListener("change", loadFlow);

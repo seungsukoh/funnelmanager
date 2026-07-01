@@ -127,6 +127,12 @@ python export_gmail_queue.py --contacts samples\funnel_contacts.csv --funnel-con
 
 Google Sheets에서 `integrations/gmail_apps_script_sender.js`를 붙여 넣고 `sendApprovedEmails`를 실행합니다.
 
+발송 결과를 로컬 고객 상태에 반영합니다.
+
+```powershell
+python import_gmail_results.py --results outbox\gmail_send_queue.csv --funnel-config samples\drip_config.json --lead-state-path state\lead_state.json --db-path state\send_history.jsonl --timeline-path state\lead_timeline.jsonl
+```
+
 자세한 절차는 `docs/gmail_apps_script.md`를 참고하세요.
 
 ## 폼 응답 webhook 수신

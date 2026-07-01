@@ -1,0 +1,2 @@
+approved,status,email,name,campaign_id,template,rule,subject,text_body,html_body,dedupe_key,sent_at,error
+yes,sent,minsu@example.com,김민수,gmail-demo,event_second_touch,attended_second_touch,AI 세미나 추가 후속 안내드립니다,,,,2026-07-01T09:00:00Z,
