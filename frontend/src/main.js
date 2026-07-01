@@ -44,6 +44,22 @@ const statusLabels = {
   failed: "실패"
 };
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const importHeaderCandidates = {
+  email: ["email", "e-mail", "email address", "mail", "메일", "메일주소", "이메일", "이메일주소", "전자메일"],
+  name: ["name", "full name", "username", "이름", "성명", "고객명", "참가자명", "신청자", "수신자"],
+  template: ["template", "mail template", "message", "메일", "템플릿", "메일종류", "메일이름", "발송메일"],
+  stage: ["stage", "step", "funnel", "status", "단계", "퍼널", "상태", "퍼널단계", "고객단계", "고객상태", "진행단계", "진행상태"]
+};
+
+const importFieldLabels = {
+  emailColumn: "이메일 주소",
+  nameColumn: "이름",
+  templateColumn: "메일 이름",
+  stageColumn: "퍼널 단계"
+};
+
 const state = {
   config: { ...fallbackDefaults },
   backend: { connected: false, error: "", mode: "none", message: "" },
@@ -66,7 +82,8 @@ const state = {
   gmailTestResult: null,
   settingsOpen: false,
   advancedSettingsOpen: false,
-  contactImport: null
+  contactImport: null,
+  contactImportDraft: null
 };
 
 function apiUrl(path) {
@@ -146,7 +163,10 @@ function countsText(counts = {}) {
 }
 
 function workflowStatus(id) {
-  if (id === "people") return state.queueRows.length ? countsText(state.queueCounts) : "명단 확인 전";
+  if (id === "people") {
+    if (state.contactImportDraft) return `새 명단 확인 중: 이메일 ${state.contactImportDraft.validCount}건`;
+    return state.queueRows.length ? countsText(state.queueCounts) : "명단 확인 전";
+  }
   if (id === "flow") return state.flowSteps.length ? `메일 단계 ${state.flowSteps.length}개` : "메일 흐름 확인 전";
   if (id === "approval") {
     return state.approvalRows.length
@@ -164,7 +184,8 @@ function workflowStatus(id) {
 
 function contactImportText() {
   if (!state.contactImport) return "엑셀/CSV를 불러온 뒤 보낼 사람을 선택하세요.";
-  return `${state.contactImport.filename} / ${state.contactImport.imported}건 불러옴`;
+  const skipped = state.contactImport.skipped ? ` / ${state.contactImport.skipped}줄 건너뜀` : "";
+  return `${state.contactImport.filename} / ${state.contactImport.imported}건 저장${skipped}`;
 }
 
 function nextStepId() {
@@ -248,7 +269,12 @@ function renderStatusMonitor(nextId) {
       ${renderMonitorItem("저장소", database?.done ? "연결됨" : "확인 필요", database?.detail || "D1 상태를 확인하세요.", database?.done ? "ok" : "warn")}
       ${renderMonitorItem("Google", connect?.done ? "연결됨" : secret?.done ? "승인 필요" : "설정 필요", connect?.detail || secret?.detail || "Google 연결 상태를 확인하세요.", connect?.done ? "ok" : "warn")}
       ${renderMonitorItem("테스트 발송", state.gmailTestResult?.sent ? "완료" : gmailSend?.done ? "준비됨" : "대기", state.gmailTestResult?.sent ? `${state.gmailTestResult.recipient} 발송` : gmailSend?.detail || "테스트 발송 전", state.gmailTestResult?.sent || gmailSend?.done ? "ok" : "neutral")}
-      ${renderMonitorItem("불러온 명단", state.queueRows.length ? `${state.queueRows.length}건` : "없음", contactImportText(), state.queueRows.length ? "ok" : "neutral")}
+      ${renderMonitorItem(
+        "불러온 명단",
+        state.contactImportDraft ? "확인 중" : state.queueRows.length ? `${state.queueRows.length}건` : "없음",
+        state.contactImportDraft ? `이메일 ${state.contactImportDraft.validCount}건 확인 후 저장 필요` : contactImportText(),
+        state.contactImportDraft || state.queueRows.length ? "ok" : "neutral"
+      )}
       ${renderMonitorItem("오늘 승인", `${approved}건`, approved ? "승인된 명단이 있습니다." : "발송 승인 전입니다.", approved ? "ok" : "neutral")}
       ${renderMonitorItem("다음 작업", workflowTitle(nextId), workflowStatus(nextId), "focus")}
       ${renderMonitorItem("확인 필요", `${needsReview}건`, needsReview ? "Gmail 결과 확인이 필요합니다." : "처리할 오류가 없습니다.", needsReview ? "warn" : "ok")}
@@ -417,6 +443,7 @@ function renderPeopleTab() {
           <strong>최근 명단</strong>
           <span>${safe(contactImportText())}</span>
         </div>` : ""}
+      ${renderContactImportReview()}
       <div class="summary-row">
         ${summaryItem("보낼 예정", state.queueCounts.ready || 0)}
         ${summaryItem("기다림", state.queueCounts.scheduled || 0)}
@@ -424,6 +451,79 @@ function renderPeopleTab() {
       </div>
       ${renderTable(state.queueRows, ["status", "email", "template", "rule", "campaign_step", "next_send_at", "detail"], "아직 명단을 확인하지 않았습니다.")}
     </section>`;
+}
+
+function renderContactImportReview() {
+  const draft = state.contactImportDraft;
+  if (!draft) return "";
+  const disabled = draft.validCount ? "" : "disabled";
+  return `
+    <section class="import-review" aria-label="새 명단 확인">
+      <div class="import-review-head">
+        <div>
+          <span class="mini-badge">새 명단 확인</span>
+          <h3>저장 전에 앱이 찾은 열을 확인하세요</h3>
+          <p>${safe(draft.filename)}에서 이메일 ${draft.validCount}건을 찾았습니다. 맞지 않으면 아래에서 바로 바꿀 수 있습니다.</p>
+        </div>
+        <div class="button-row">
+          <button type="button" data-action="clear-contact-draft">다시 선택</button>
+          <button class="primary" type="button" data-action="save-contact-draft" ${disabled}>이대로 명단 저장</button>
+        </div>
+      </div>
+      <div class="import-stats">
+        <div><span>확인된 이메일</span><strong>${draft.validCount}</strong></div>
+        <div><span>건너뜀</span><strong>${draft.skippedCount}</strong></div>
+        <div><span>제목 행</span><strong>${draft.headerRowIndex >= 0 ? `${draft.headerRowIndex + 1}번째 줄` : "자동 판단"}</strong></div>
+      </div>
+      <div class="mapping-grid">
+        ${renderImportColumnSelect("emailColumn", draft, true)}
+        ${renderImportColumnSelect("nameColumn", draft)}
+        ${renderImportColumnSelect("templateColumn", draft)}
+        ${renderImportColumnSelect("stageColumn", draft)}
+      </div>
+      ${draft.confidenceNotes.length ? `<p class="import-help">${safe(draft.confidenceNotes.join(" "))}</p>` : ""}
+      ${renderImportPreview(draft)}
+    </section>`;
+}
+
+function renderImportColumnSelect(field, draft, required = false) {
+  const value = Number(draft[field]);
+  const options = [];
+  if (!required) options.push(`<option value="-1" ${value < 0 ? "selected" : ""}>사용 안 함</option>`);
+  for (let index = 0; index < draft.columnCount; index += 1) {
+    const selected = value === index ? "selected" : "";
+    options.push(`<option value="${index}" ${selected}>${safe(importColumnLabel(draft, index))}</option>`);
+  }
+  return `
+    <label class="field import-field">
+      <span>${safe(importFieldLabels[field])}</span>
+      <select data-import-field="${field}">${options.join("")}</select>
+      <small>${safe(importColumnSample(draft, value))}</small>
+    </label>`;
+}
+
+function renderImportPreview(draft) {
+  if (!draft.previewRows.length) {
+    return `<p class="empty">이메일 열을 다시 선택하면 미리보기가 표시됩니다.</p>`;
+  }
+  return `
+    <div class="table-wrap import-preview">
+      <table>
+        <thead>
+          <tr><th>이름</th><th>이메일</th><th>메일 이름</th><th>퍼널 단계</th></tr>
+        </thead>
+        <tbody>
+          ${draft.previewRows.map((row) => `
+            <tr>
+              <td>${safe(row.name || "")}</td>
+              <td>${safe(row.email || "")}</td>
+              <td>${safe(row.template || "")}</td>
+              <td>${safe(row.campaign_step || "")}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 function renderFlowTab() {
@@ -710,8 +810,12 @@ function bindEvents() {
     input.addEventListener("change", () => importContactsFile(input.files?.[0], input));
   }
 
+  for (const select of document.querySelectorAll("[data-import-field]")) {
+    select.addEventListener("change", () => updateContactImportColumn(select.dataset.importField, select.value));
+  }
+
   for (const button of document.querySelectorAll("[data-action]")) {
-    button.disabled = state.busy;
+    button.disabled = state.busy || button.hasAttribute("disabled");
     button.addEventListener("click", () => runAction(button.dataset.action));
   }
 }
@@ -740,7 +844,9 @@ async function runAction(action) {
     "fetch-private-gmail": fetchPrivateGmail,
     "test-gmail": testGmail,
     "import-gmail": importGmail,
-    "compare-gmail": compareGmail
+    "compare-gmail": compareGmail,
+    "save-contact-draft": saveContactImportDraft,
+    "clear-contact-draft": clearContactImportDraft
   };
   await handlers[action]?.();
 }
@@ -954,8 +1060,23 @@ async function testGmail() {
 
 async function importContactsFile(file, input) {
   if (!file) return;
-  await withBusy("명단 파일을 불러오는 중입니다.", async () => {
-    const rows = await rowsFromContactsFile(file);
+  await withBusy("명단 파일을 읽는 중입니다.", async () => {
+    const table = await tableFromContactsFile(file);
+    state.contactImportDraft = buildContactImportDraft(file.name, table);
+    state.activeTab = "people";
+    setNotice(
+      `이메일 ${state.contactImportDraft.validCount}건을 찾았습니다. 저장 전에 열을 확인하세요.`,
+      state.contactImportDraft.validCount ? "success" : "info"
+    );
+  });
+  if (input) input.value = "";
+}
+
+async function saveContactImportDraft() {
+  if (!state.contactImportDraft) return;
+  await withBusy("확인한 명단을 저장하는 중입니다.", async () => {
+    const rows = contactRowsFromDraft(state.contactImportDraft);
+    if (!rows.length) throw new Error("저장할 이메일 주소가 없습니다. 이메일 열을 다시 확인하세요.");
     const data = await api("/api/contacts/import", {
       method: "POST",
       body: JSON.stringify({ ...formData(), rows })
@@ -967,14 +1088,28 @@ async function importContactsFile(file, input) {
     state.previewRows = [];
     state.previewSummary = null;
     state.contactImport = {
-      filename: file.name,
+      filename: state.contactImportDraft.filename,
       received: data.summary?.received || rows.length,
-      imported: data.summary?.imported || 0
+      imported: data.summary?.imported || 0,
+      skipped: state.contactImportDraft.skippedCount
     };
+    state.contactImportDraft = null;
     state.activeTab = "people";
-    setNotice(messageFrom(data, `명단 ${state.contactImport.imported}건을 불러왔습니다.`), "success");
+    setNotice(messageFrom(data, `명단 ${state.contactImport.imported}건을 저장했습니다.`), "success");
   });
-  if (input) input.value = "";
+}
+
+async function clearContactImportDraft() {
+  state.contactImportDraft = null;
+  setNotice("새 명단 선택을 취소했습니다.");
+  render();
+}
+
+function updateContactImportColumn(field, value) {
+  if (!state.contactImportDraft) return;
+  state.contactImportDraft[field] = Number(value);
+  state.contactImportDraft = refreshContactImportDraft(state.contactImportDraft);
+  render();
 }
 
 async function importGmail() {
@@ -1031,53 +1166,259 @@ function fileToBase64(file) {
   });
 }
 
-async function rowsFromContactsFile(file) {
+async function tableFromContactsFile(file) {
   const name = file.name.toLowerCase();
-  if (name.endsWith(".xlsx")) {
-    return objectsFromTable(await readXlsxFile(file));
-  }
-  if (name.endsWith(".csv")) {
-    return objectsFromTable(parseCsv(await file.text()));
-  }
+  if (name.endsWith(".xlsx")) return readXlsxFile(file);
+  if (name.endsWith(".csv")) return parseCsv(await file.text());
   throw new Error("엑셀 .xlsx 또는 CSV 파일만 불러올 수 있습니다.");
 }
 
-function objectsFromTable(table) {
-  const rows = table
-    .map((row) => row.map((value) => String(value ?? "").trim()))
+function buildContactImportDraft(filename, table) {
+  const tableRows = normalizeContactTable(table);
+  if (!tableRows.length) throw new Error("명단 파일에서 읽을 수 있는 내용이 없습니다.");
+  const inferred = inferContactColumns(tableRows);
+  return refreshContactImportDraft({
+    filename,
+    tableRows,
+    ...inferred
+  });
+}
+
+function normalizeContactTable(table) {
+  const rows = (Array.isArray(table) ? table : [])
+    .map((row) => (Array.isArray(row) ? row : []).map((value) => String(value ?? "").trim()))
     .filter((row) => row.some(Boolean));
-  if (rows.length < 2) throw new Error("명단 파일에 제목 행과 고객 행이 필요합니다.");
+  const columnCount = Math.max(0, ...rows.map((row) => row.length));
+  return rows.map((row) => Array.from({ length: columnCount }, (_, index) => row[index] || ""));
+}
 
-  const headers = rows[0].map((header) => header.trim());
-  const emailIndex = detectHeaderIndex(headers, ["email", "e-mail", "email address", "mail", "메일", "메일주소", "이메일", "이메일주소", "전자메일"]);
-  if (emailIndex < 0) throw new Error("이메일 열을 찾지 못했습니다. 열 이름을 email 또는 이메일로 입력하세요.");
+function inferContactColumns(tableRows) {
+  const columnCount = Math.max(0, ...tableRows.map((row) => row.length));
+  const emailColumn = inferEmailColumn(tableRows, columnCount);
+  if (emailColumn < 0) throw new Error("이메일 주소가 들어 있는 열을 찾지 못했습니다.");
 
-  const nameIndex = detectHeaderIndex(headers, ["name", "full name", "username", "이름", "성명", "고객명", "참가자명"]);
+  const firstEmailRow = firstEmailRowFor(tableRows, emailColumn);
+  const headerRowIndex = inferHeaderRow(tableRows, firstEmailRow, emailColumn);
+  const dataStartIndex = headerRowIndex >= 0 ? headerRowIndex + 1 : Math.max(firstEmailRow, 0);
+  const headers = buildImportHeaders(tableRows, headerRowIndex, columnCount);
+  const nameColumn = inferHeaderColumn(headers, "name", [emailColumn]) ?? inferNameColumn(tableRows, dataStartIndex, emailColumn, columnCount);
+  const templateColumn = inferHeaderColumn(headers, "template", [emailColumn, nameColumn]) ?? -1;
+  const stageColumn = inferHeaderColumn(headers, "stage", [emailColumn, nameColumn, templateColumn]) ?? -1;
+  const baseNotes = [
+    headerRowIndex >= 0
+      ? `${headerRowIndex + 1}번째 줄을 제목으로 보고 확인했습니다.`
+      : "제목 행이 없어도 이메일 주소 모양을 보고 찾았습니다."
+  ];
+
+  return {
+    columnCount,
+    headerRowIndex,
+    dataStartIndex,
+    headers,
+    emailColumn,
+    nameColumn,
+    templateColumn,
+    stageColumn,
+    baseNotes
+  };
+}
+
+function inferEmailColumn(rows, columnCount) {
+  let bestColumn = -1;
+  let bestScore = 0;
+  for (let column = 0; column < columnCount; column += 1) {
+    const emailValues = rows.filter((row) => isEmail(rowValue(row, column))).length;
+    const headerScore = rows.slice(0, 20).reduce((score, row) => score + headerCandidateScore(rowValue(row, column), "email"), 0);
+    const score = emailValues * 10 + headerScore * 3;
+    if (score > bestScore) {
+      bestScore = score;
+      bestColumn = column;
+    }
+  }
+  return bestColumn;
+}
+
+function firstEmailRowFor(rows, emailColumn) {
+  return rows.findIndex((row) => isEmail(rowValue(row, emailColumn)));
+}
+
+function inferHeaderRow(rows, firstEmailRow, emailColumn) {
+  const end = firstEmailRow > 0 ? firstEmailRow - 1 : Math.min(rows.length - 1, 4);
+  const start = Math.max(0, end - 6);
+  let bestRow = -1;
+  let bestScore = 0;
+  for (let index = start; index <= end; index += 1) {
+    const row = rows[index] || [];
+    const emailCount = row.filter(isEmail).length;
+    const score = headerRowScore(row) + headerCandidateScore(rowValue(row, emailColumn), "email") - emailCount * 4;
+    if (score > bestScore) {
+      bestScore = score;
+      bestRow = index;
+    }
+  }
+  return bestScore >= 3 ? bestRow : -1;
+}
+
+function headerRowScore(row) {
+  const textCells = row.filter((cell) => cell && !isEmail(cell) && Number.isNaN(Number(cell))).length;
+  const candidateScore = row.reduce((score, cell) => (
+    score
+    + headerCandidateScore(cell, "email")
+    + headerCandidateScore(cell, "name")
+    + headerCandidateScore(cell, "template")
+    + headerCandidateScore(cell, "stage")
+  ), 0);
+  return candidateScore + (textCells >= 2 ? 1 : 0);
+}
+
+function buildImportHeaders(rows, headerRowIndex, columnCount) {
+  const headerRow = headerRowIndex >= 0 ? rows[headerRowIndex] || [] : [];
+  return Array.from({ length: columnCount }, (_, index) => {
+    const header = String(headerRow[index] || "").trim();
+    return header || `${spreadsheetColumnName(index)}열`;
+  });
+}
+
+function inferHeaderColumn(headers, kind, excluded = []) {
+  let bestColumn = -1;
+  let bestScore = 0;
+  for (let index = 0; index < headers.length; index += 1) {
+    if (excluded.includes(index)) continue;
+    const score = headerCandidateScore(headers[index], kind);
+    if (score > bestScore) {
+      bestScore = score;
+      bestColumn = index;
+    }
+  }
+  return bestScore > 0 ? bestColumn : null;
+}
+
+function inferNameColumn(rows, dataStartIndex, emailColumn, columnCount) {
+  let bestColumn = -1;
+  let bestScore = 0;
+  const sampleRows = rows.slice(dataStartIndex, dataStartIndex + 30);
+  for (let column = 0; column < columnCount; column += 1) {
+    if (column === emailColumn) continue;
+    const values = sampleRows.map((row) => rowValue(row, column)).filter(Boolean);
+    const textValues = values.filter((value) => !isEmail(value) && Number.isNaN(Number(value)) && value.length <= 40);
+    const score = textValues.length * 2 + (column === emailColumn - 1 ? 3 : 0) + (column === emailColumn + 1 ? 1 : 0);
+    if (score > bestScore) {
+      bestScore = score;
+      bestColumn = column;
+    }
+  }
+  return bestScore > 0 ? bestColumn : -1;
+}
+
+function refreshContactImportDraft(draft) {
+  const rows = contactRowsFromDraft(draft);
+  let skippedCount = 0;
+  for (let index = draft.dataStartIndex; index < draft.tableRows.length; index += 1) {
+    if (index === draft.headerRowIndex) continue;
+    const row = draft.tableRows[index];
+    if (row.some(Boolean) && !isEmail(rowValue(row, draft.emailColumn))) skippedCount += 1;
+  }
+  const confidenceNotes = [...(draft.baseNotes || [])];
+  if (skippedCount) confidenceNotes.push(`${skippedCount}줄은 이메일 주소가 없어 저장하지 않습니다.`);
+  if (draft.templateColumn < 0) confidenceNotes.push("메일 이름이 없으면 첫 번째 메일 단계로 저장합니다.");
+  return {
+    ...draft,
+    previewRows: rows.slice(0, 5),
+    validCount: rows.length,
+    skippedCount,
+    confidenceNotes
+  };
+}
+
+function contactRowsFromDraft(draft) {
+  if (!draft || draft.emailColumn < 0) return [];
   const objects = [];
-  for (const row of rows.slice(1)) {
-    const email = String(row[emailIndex] || "").trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
+  for (let index = draft.dataStartIndex; index < draft.tableRows.length; index += 1) {
+    if (index === draft.headerRowIndex) continue;
+    const row = draft.tableRows[index];
+    const email = normalizeEmail(rowValue(row, draft.emailColumn));
+    if (!EMAIL_PATTERN.test(email)) continue;
     const object = { email };
-    if (nameIndex >= 0) object.name = String(row[nameIndex] || "").trim();
-    headers.forEach((header, index) => {
-      if (header) object[header] = String(row[index] || "").trim();
+    const name = rowValue(row, draft.nameColumn);
+    const template = rowValue(row, draft.templateColumn);
+    const stage = rowValue(row, draft.stageColumn);
+    if (name) object.name = name;
+    if (template) object.template = template;
+    if (stage) object.campaign_step = stage;
+    draft.headers.forEach((header, column) => {
+      const value = rowValue(row, column);
+      if (header && value) object[header] = value;
     });
     objects.push(object);
   }
-  if (!objects.length) throw new Error("유효한 이메일 주소가 없습니다.");
   return objects;
 }
 
-function detectHeaderIndex(headers, candidates) {
-  const normalized = headers.map(normalizeHeader);
-  return candidates.map(normalizeHeader).reduce((found, candidate) => {
-    if (found >= 0) return found;
-    return normalized.indexOf(candidate);
-  }, -1);
+function importColumnLabel(draft, index) {
+  const columnName = spreadsheetColumnName(index);
+  const header = draft.headers[index] || "";
+  const generated = header === `${columnName}열`;
+  const sample = firstColumnValue(draft, index);
+  if (header && !generated) return `${columnName}열 · ${header}`;
+  if (sample) return `${columnName}열 · 예: ${sample}`;
+  return `${columnName}열`;
 }
 
-function normalizeHeader(value) {
-  return String(value || "").toLowerCase().replace(/[\s_-]+/g, "");
+function importColumnSample(draft, index) {
+  if (index < 0) return "필요 없으면 비워둘 수 있습니다.";
+  const sample = firstColumnValue(draft, index);
+  return sample ? `예: ${sample}` : "값이 비어 있습니다.";
+}
+
+function firstColumnValue(draft, index) {
+  if (index < 0) return "";
+  for (let rowIndex = draft.dataStartIndex; rowIndex < draft.tableRows.length; rowIndex += 1) {
+    if (rowIndex === draft.headerRowIndex) continue;
+    const value = rowValue(draft.tableRows[rowIndex], index);
+    if (value) return value.length > 36 ? `${value.slice(0, 36)}...` : value;
+  }
+  return "";
+}
+
+function rowValue(row, index) {
+  if (index < 0 || !Array.isArray(row)) return "";
+  return String(row[index] ?? "").trim();
+}
+
+function normalizeEmail(value) {
+  const match = String(value || "").match(/[^\s<>"'(),;]+@[^\s<>"'(),;]+\.[^\s<>"'(),;]+/);
+  return match ? match[0].replace(/[.,;]+$/, "").toLowerCase() : "";
+}
+
+function isEmail(value) {
+  return EMAIL_PATTERN.test(normalizeEmail(value));
+}
+
+function headerCandidateScore(value, kind) {
+  const normalized = normalizeImportHeader(value);
+  if (!normalized) return 0;
+  return (importHeaderCandidates[kind] || []).reduce((score, candidate) => {
+    const token = normalizeImportHeader(candidate);
+    if (!token) return score;
+    if (normalized === token) return Math.max(score, 4);
+    if (token.length >= 3 && normalized.includes(token)) return Math.max(score, 2);
+    return score;
+  }, 0);
+}
+
+function normalizeImportHeader(value) {
+  return String(value || "").toLowerCase().replace(/[()[\]{}]/g, "").replace(/[\s_\-.]+/g, "");
+}
+
+function spreadsheetColumnName(index) {
+  let name = "";
+  let value = index + 1;
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    name = String.fromCharCode(65 + remainder) + name;
+    value = Math.floor((value - 1) / 26);
+  }
+  return name || "A";
 }
 
 function parseCsv(text) {
