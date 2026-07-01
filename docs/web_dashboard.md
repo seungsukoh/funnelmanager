@@ -59,7 +59,7 @@ outbox/web_dashboard_approval.csv
 
 ## Gmail 결과 반영
 
-Gmail + Apps Script로 발송한 뒤 Google Sheet의 결과 CSV를 `Gmail 결과 파일`에 지정하고 `Gmail 결과 반영`을 누른다.
+Gmail + Apps Script로 발송한 뒤 Google Sheet 결과를 앱에 반영한다.
 
 기본 파일:
 
@@ -67,11 +67,20 @@ Gmail + Apps Script로 발송한 뒤 Google Sheet의 결과 CSV를 `Gmail 결과
 outbox/gmail_send_queue.csv
 ```
 
+사용 방식:
+
+- `Gmail 시트 링크`: Google Sheet 주소 또는 CSV export 주소
+- `Gmail 시트 가져오기`: 시트 결과를 `Gmail 결과 파일`로 저장
+- `Gmail 결과 반영`: 성공/실패 결과를 고객 상태와 고객별 기록에 반영
+- `Gmail 결과 확인`: Gmail 결과와 앱 고객 상태가 맞는지 비교
+
 반영 내용:
 
 - `sent`: 고객 상태와 다음 퍼널 단계 업데이트
 - `failed`: 실패 기록만 남기고 다음 단계로 이동하지 않음
 - `pending`: 아직 보내지 않은 상태이므로 건너뜀
+
+`Gmail 확인` 탭은 결과를 `같음`, `확인 필요`, `아직 대기`로 나누어 보여준다.
 
 ## 기본 샘플 설정
 
@@ -79,6 +88,7 @@ outbox/gmail_send_queue.csv
 - 퍼널 설정: `samples/drip_config.json`
 - 리드 상태: `samples/lead_state_drip.json`
 - 큐 출력: `outbox/web_dashboard_queue.csv`
+- Gmail 결과: `outbox/gmail_send_queue.csv`
 - 타임라인: `outbox/web_dashboard_timeline.jsonl`
 
 ## 운영 원칙

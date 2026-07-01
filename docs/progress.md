@@ -82,13 +82,16 @@
 - Gmail 발송 결과 import CLI 추가: `import_gmail_results.py`
 - Gmail 결과 import 샘플 추가: `samples/gmail_results.csv`
 - 웹 화면에 `Gmail 결과 반영` 버튼/API 추가
+- Gmail Sheet 결과 다운로드 CLI 추가: `fetch_gmail_results.py`
+- Gmail 결과와 고객 상태 비교 CLI 추가: `compare_gmail_results.py`
+- 웹 화면에 `Gmail 시트 가져오기`, `Gmail 결과 확인`, `Gmail 확인` 탭/API 추가
 
 ### 진행 중
 
 - Outlook display 모드 사용자 테스트 준비
 - 실제 provider 발송 후 lead_state 업데이트 검증 준비
 - Windows 작업 스케줄러 연결 절차 검증 준비
-- Gmail 발송 결과 import를 실제 운영 Google Sheet CSV로 검증 준비
+- Gmail Sheet 가져오기를 실제 운영 Google Sheet 링크로 검증 준비
 
 ### 다음 작업
 
@@ -98,7 +101,8 @@
 - Word 본문 변환에서 표/서식 보존 범위 사용자 검증
 - 웹 화면에서 테스트 수신자 입력 후 승인 대상만 Outlook display로 여는 기능 추가
 - Windows 작업 스케줄러 등록/해제 스크립트 추가
-- Gmail 발송 결과 import 후 Google Sheet 상태와 로컬 고객 상태 비교 화면 추가
+- 비공개 Google Sheet OAuth 연동 여부 결정
+- Gmail 결과 확인에서 확인 필요 항목만 다시 처리하는 운영 흐름 추가
 
 ### 리스크
 

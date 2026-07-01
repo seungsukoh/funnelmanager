@@ -158,10 +158,22 @@ python export_gmail_queue.py --contacts inbox\form_responses.csv --funnel-config
 
 Google Sheets에 `outbox\gmail_send_queue.csv`를 가져온 뒤 Apps Script에 `integrations/gmail_apps_script_sender.js`를 붙여 넣고 `sendApprovedEmails`를 실행한다.
 
-발송 후 Google Sheet의 `GmailQueue`를 CSV로 내려받아 로컬 상태에 반영한다.
+발송 후 Google Sheet의 `GmailQueue`를 CSV로 내려받거나, 공개/게시된 CSV 링크에서 결과 파일을 가져온다.
+
+```powershell
+python fetch_gmail_results.py --source "https://docs.google.com/spreadsheets/d/<sheet-id>/edit#gid=0" --output outbox\gmail_send_queue.csv
+```
+
+그다음 로컬 상태에 반영한다.
 
 ```powershell
 python import_gmail_results.py --results outbox\gmail_send_queue.csv --funnel-config samples\drip_config.json --lead-state-path state\lead_state.json --db-path state\send_history.jsonl --timeline-path state\lead_timeline.jsonl
+```
+
+반영 후 Gmail 결과와 고객 상태가 맞는지 비교한다.
+
+```powershell
+python compare_gmail_results.py --results outbox\gmail_send_queue.csv --lead-state-path state\lead_state.json --campaign-id gmail-daily
 ```
 
 자세한 절차는 `docs/gmail_apps_script.md`를 따른다.

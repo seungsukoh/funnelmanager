@@ -13,6 +13,8 @@ from urllib.parse import parse_qs, urlparse
 from automailer.campaign import CampaignConfig, run_campaign
 from automailer.planner import PlanConfig, build_send_queue
 from automailer.word_template import load_word_template_bytes
+from compare_gmail_results import compare_results as compare_gmail_results
+from fetch_gmail_results import fetch_results as fetch_gmail_results
 from import_gmail_results import import_results as import_gmail_results
 
 
@@ -29,6 +31,7 @@ DEFAULTS = {
     "campaign_id": "web-dashboard-demo",
     "queue_output": "outbox/web_dashboard_queue.csv",
     "approval_output": "outbox/web_dashboard_approval.csv",
+    "gmail_source": "",
     "gmail_results": "outbox/gmail_send_queue.csv",
     "outbox": "outbox",
 }
@@ -119,6 +122,14 @@ def make_handler():
                     return
                 if parsed.path == "/api/gmail/import":
                     result = _handle_import_gmail_results(payload)
+                    self._json_response(200, result)
+                    return
+                if parsed.path == "/api/gmail/fetch":
+                    result = _handle_fetch_gmail_results(payload)
+                    self._json_response(200, result)
+                    return
+                if parsed.path == "/api/gmail/compare":
+                    result = _handle_compare_gmail_results(payload)
                     self._json_response(200, result)
                     return
                 self._json_response(404, {"ok": False, "error": "not found"})
@@ -410,6 +421,25 @@ def _handle_import_gmail_results(payload: dict[str, object]) -> dict[str, object
         default_campaign_id=config["campaign_id"],
     )
     return {"ok": True, "summary": summary}
+
+
+def _handle_fetch_gmail_results(payload: dict[str, object]) -> dict[str, object]:
+    config = _request_config(payload)
+    summary = fetch_gmail_results(
+        source=config["gmail_source"],
+        output_path=_safe_path(config["gmail_results"]),
+    )
+    return {"ok": True, "summary": summary}
+
+
+def _handle_compare_gmail_results(payload: dict[str, object]) -> dict[str, object]:
+    config = _request_config(payload)
+    result = compare_gmail_results(
+        results_path=_safe_path(config["gmail_results"]),
+        lead_state_path=_safe_path(config["lead_state"]),
+        campaign_id=config["campaign_id"],
+    )
+    return {"ok": True, **result}
 
 
 def _request_config(payload: dict[str, object]) -> dict[str, str]:
@@ -1461,9 +1491,10 @@ SIMPLE_DASHBOARD_HTML = r"""<!doctype html>
       font-weight: 700;
       background: #e7eef7;
     }
-    .ready, .sent { color: var(--green); background: #e5f4ed; }
-    .skipped { color: var(--red); background: #fbe8e6; }
-    .scheduled { color: var(--amber); background: #fff3d9; }
+    .ready, .sent, .matched { color: var(--green); background: #e5f4ed; }
+    .skipped, .needs_review { color: var(--red); background: #fbe8e6; }
+    .scheduled, .pending { color: var(--amber); background: #fff3d9; }
+    .ignored { color: var(--muted); background: #eef1f5; }
     .note {
       color: var(--muted);
       margin: 10px 0 0;
@@ -2012,9 +2043,10 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       font-weight: 700;
       background: #e7eef7;
     }
-    .ready, .sent { color: var(--green); background: #e5f4ed; }
-    .skipped { color: var(--red); background: #fbe8e6; }
-    .scheduled { color: var(--amber); background: #fff3d9; }
+    .ready, .sent, .matched { color: var(--green); background: #e5f4ed; }
+    .skipped, .needs_review { color: var(--red); background: #fbe8e6; }
+    .scheduled, .pending { color: var(--amber); background: #fff3d9; }
+    .ignored { color: var(--muted); background: #eef1f5; }
     .note {
       min-height: 20px;
       margin: 10px 0 0;
@@ -2156,7 +2188,9 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
         <button id="planBtn">받을 사람 확인</button>
         <button id="dryRunBtn" class="primary">메일 미리보기 만들기</button>
         <button id="prepareApprovalBtn">발송 승인 준비</button>
+        <button id="fetchGmailBtn">Gmail 시트 가져오기</button>
         <button id="importGmailBtn">Gmail 결과 반영</button>
+        <button id="compareGmailBtn">Gmail 결과 확인</button>
         <button id="saveFlowBtn">단계별 메일 저장</button>
         <button id="refreshBtn">화면 새로고침</button>
       </div>
@@ -2195,6 +2229,8 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
             <input id="queue_output">
             <label for="approval_output">발송 승인 파일</label>
             <input id="approval_output">
+            <label for="gmail_source">Gmail 시트 링크</label>
+            <input id="gmail_source">
             <label for="gmail_results">Gmail 결과 파일</label>
             <input id="gmail_results">
             <label for="timeline">고객별 기록 파일</label>
@@ -2209,6 +2245,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
           <button class="tab active" data-tab="people">명단 확인</button>
           <button class="tab" data-tab="flow">단계별 메일</button>
           <button class="tab" data-tab="approval">발송 승인</button>
+          <button class="tab" data-tab="gmail">Gmail 확인</button>
           <button class="tab" data-tab="preview">미리보기 결과</button>
           <button class="tab" data-tab="history">고객별 기록</button>
           <button class="tab" data-tab="state">고객 상태</button>
@@ -2218,6 +2255,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
           <div id="peopleTab"></div>
           <div id="flowTab" hidden></div>
           <div id="approvalTab" hidden></div>
+          <div id="gmailTab" hidden></div>
           <div id="previewTab" hidden></div>
           <div id="historyTab" hidden></div>
           <div id="stateTab" hidden></div>
@@ -2228,19 +2266,24 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
   </main>
 
   <script>
-    const fields = ["contacts", "funnel_config", "lead_state", "campaign_id", "queue_output", "approval_output", "gmail_results", "timeline"];
+    const fields = ["contacts", "funnel_config", "lead_state", "campaign_id", "queue_output", "approval_output", "gmail_source", "gmail_results", "timeline"];
     const statusLabels = {
       ready: "보낼 예정",
       sent: "미리보기 완료",
       skipped: "보내지 않음",
       scheduled: "나중에 보냄",
-      failed: "문제 있음"
+      failed: "문제 있음",
+      matched: "같음",
+      needs_review: "확인 필요",
+      pending: "아직 대기",
+      ignored: "제외"
     };
     let peopleRows = [];
     let previewRows = [];
     let flowSteps = [];
     let templates = [];
     let approvalRows = [];
+    let gmailRows = [];
 
     function formData() {
       const data = {};
@@ -2256,7 +2299,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     }
 
     function busy(value) {
-      for (const id of ["planBtn", "dryRunBtn", "prepareApprovalBtn", "importGmailBtn", "saveFlowBtn", "refreshBtn"]) {
+      for (const id of ["planBtn", "dryRunBtn", "prepareApprovalBtn", "fetchGmailBtn", "importGmailBtn", "compareGmailBtn", "saveFlowBtn", "refreshBtn"]) {
         const element = document.getElementById(id);
         if (element) element.disabled = value;
       }
@@ -2476,6 +2519,45 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       document.getElementById("saveApprovalBtn").addEventListener("click", saveApproval);
     }
 
+    function showGmailCompare(counts = {}) {
+      const target = document.getElementById("gmailTab");
+      const matched = counts.matched || 0;
+      const needsReview = counts.needs_review || 0;
+      const pending = counts.pending || 0;
+      const ignored = counts.ignored || 0;
+      const summary = `
+        <div class="message-tools">
+          <button type="button" id="fetchGmailInTabBtn">Gmail 시트 가져오기</button>
+          <button type="button" class="primary" id="importGmailInTabBtn">Gmail 결과 반영</button>
+          <button type="button" id="compareGmailInTabBtn">Gmail 결과 확인</button>
+          <span class="file-name">같음 ${matched}건 / 확인 필요 ${needsReview}건 / 대기 ${pending}건 / 제외 ${ignored}건</span>
+        </div>`;
+
+      if (!gmailRows.length) {
+        target.innerHTML = `${summary}<p class="note">아직 확인할 Gmail 결과가 없습니다.</p>`;
+      } else {
+        target.innerHTML = `${summary}
+          <table>
+            <thead><tr><th>확인</th><th>고객</th><th>Gmail 상태</th><th>메일</th><th>현재 단계</th><th>상세</th></tr></thead>
+            <tbody>
+              ${gmailRows.map(row => `
+                <tr>
+                  <td>${badge(row.status)}</td>
+                  <td>${safe(row.email)}</td>
+                  <td>${safe(row.gmail_status)}</td>
+                  <td>${safe(row.template)}</td>
+                  <td>${safe(row.customer_step)}</td>
+                  <td>${safe(row.detail)}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>`;
+      }
+
+      document.getElementById("fetchGmailInTabBtn").addEventListener("click", fetchGmailResults);
+      document.getElementById("importGmailInTabBtn").addEventListener("click", importGmailResults);
+      document.getElementById("compareGmailInTabBtn").addEventListener("click", () => compareGmailResults(true));
+    }
+
     function stageLabelForRow(row) {
       const step = flowSteps.find(item => item.id === row.rule || item.template === row.template);
       return step ? (step.stage_label || step.audience) : (row.campaign_step || row.rule || "");
@@ -2653,6 +2735,24 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       }
     }
 
+    async function fetchGmailResults() {
+      busy(true);
+      note("Gmail 시트 결과를 가져오는 중입니다...");
+      try {
+        const data = await api("/api/gmail/fetch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(formData())
+        });
+        note(`Gmail 시트 가져오기 완료: ${data.summary.rows}행을 저장했습니다.`);
+        await compareGmailResults(false);
+      } catch (error) {
+        note(error.message);
+      } finally {
+        busy(false);
+      }
+    }
+
     async function importGmailResults() {
       busy(true);
       note("Gmail 발송 결과를 고객 상태에 반영하는 중입니다...");
@@ -2663,11 +2763,35 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
           body: JSON.stringify(formData())
         });
         await Promise.all([refreshState(), refreshHistory()]);
+        await compareGmailResults(false);
         note(`Gmail 결과 반영 완료: 성공 ${data.summary.imported}건, 실패 ${data.summary.failed}건, 건너뜀 ${data.summary.skipped}건`);
       } catch (error) {
         note(error.message);
       } finally {
         busy(false);
+      }
+    }
+
+    async function compareGmailResults(showBusy = true) {
+      if (showBusy) {
+        busy(true);
+        note("Gmail 결과와 고객 상태를 확인하는 중입니다...");
+      }
+      try {
+        const data = await api("/api/gmail/compare", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(formData())
+        });
+        gmailRows = data.rows || [];
+        showGmailCompare(data.counts || {});
+        switchTab("gmail");
+        if (showBusy) note(`Gmail 결과 확인 완료: 같음 ${data.counts.matched}건, 확인 필요 ${data.counts.needs_review}건, 대기 ${data.counts.pending}건`);
+      } catch (error) {
+        if (showBusy) note(error.message);
+        throw error;
+      } finally {
+        if (showBusy) busy(false);
       }
     }
 
@@ -2720,7 +2844,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       for (const button of document.querySelectorAll(".tab")) {
         button.classList.toggle("active", button.dataset.tab === name);
       }
-      for (const id of ["people", "flow", "approval", "preview", "history", "state", "pm"]) {
+      for (const id of ["people", "flow", "approval", "gmail", "preview", "history", "state", "pm"]) {
         document.getElementById(`${id}Tab`).hidden = id !== name;
       }
     }
@@ -2740,13 +2864,16 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       document.getElementById("planBtn").addEventListener("click", plan);
       document.getElementById("dryRunBtn").addEventListener("click", preview);
       document.getElementById("prepareApprovalBtn").addEventListener("click", prepareApproval);
+      document.getElementById("fetchGmailBtn").addEventListener("click", fetchGmailResults);
       document.getElementById("importGmailBtn").addEventListener("click", importGmailResults);
+      document.getElementById("compareGmailBtn").addEventListener("click", () => compareGmailResults(true));
       document.getElementById("saveFlowBtn").addEventListener("click", saveFlow);
       document.getElementById("refreshBtn").addEventListener("click", refreshAll);
       document.getElementById("funnel_config").addEventListener("change", loadFlow);
       for (const button of document.querySelectorAll(".tab")) {
         button.addEventListener("click", () => switchTab(button.dataset.tab));
       }
+      showGmailCompare();
       await plan();
       await refreshAll();
     }
