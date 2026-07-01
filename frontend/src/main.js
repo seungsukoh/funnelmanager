@@ -789,6 +789,10 @@ async function testGmail() {
       method: "POST",
       body: JSON.stringify(formData())
     });
+    if (data.steps) {
+      state.googleStatusError = "";
+      state.googleSteps = data.steps;
+    }
     state.activeTab = "gmail";
     setNotice(
       messageFrom(data, `테스트 메일 발송 완료: ${data.summary?.recipient || ""}`),
