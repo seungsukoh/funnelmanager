@@ -104,7 +104,10 @@ python fetch_gmail_results.py --source "https://docs.google.com/spreadsheets/d/<
 2. `Gmail 시트 이름`에 `GmailQueue`를 넣는다.
 3. `Gmail 확인` 탭의 안내 박스에서 Google Cloud 설정 상태를 확인한다.
 4. `Google 연결`을 누르고 브라우저에서 권한을 승인한다.
-5. `비공개 시트 가져오기`를 누른다.
+5. 발송 전에는 `Gmail 발송 준비` 후 `비공개 시트에 올리기`를 누른다.
+6. 발송 후에는 `비공개 시트 가져오기`를 누른다.
+
+기존 읽기 전용 연결을 사용 중이었다면 `Google 연결`을 다시 눌러 읽기/쓰기 권한을 승인한다.
 
 터미널 사용:
 
@@ -112,11 +115,17 @@ python fetch_gmail_results.py --source "https://docs.google.com/spreadsheets/d/<
 python fetch_private_gmail_results.py --source "https://docs.google.com/spreadsheets/d/<sheet-id>/edit#gid=0" --sheet-name GmailQueue --credentials config\google_oauth_client.json --token state\google_sheets_token.json --output outbox\gmail_send_queue.csv
 ```
 
+발송 준비 파일을 비공개 Google Sheet에 업로드할 때는 다음 명령을 사용한다.
+
+```powershell
+python upload_private_gmail_queue.py --source "https://docs.google.com/spreadsheets/d/<sheet-id>/edit#gid=0" --sheet-name GmailQueue --credentials config\google_oauth_client.json --token state\google_sheets_token.json --input outbox\gmail_send_queue.csv
+```
+
 처음 연결 후 토큰은 `state/google_sheets_token.json`에 저장된다. `state/` 폴더는 커밋하지 않는다.
 
 ## 8. 발송 결과 반영
 
-웹 화면에서는 `Gmail 결과 파일`에 CSV 경로를 넣고 `Gmail 결과 반영`을 누른다.
+웹 화면에서는 `Gmail 준비/결과 파일`에 CSV 경로를 넣고 `Gmail 결과 반영`을 누른다.
 
 터미널에서는 다음 명령을 사용한다.
 

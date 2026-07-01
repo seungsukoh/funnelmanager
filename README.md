@@ -122,6 +122,7 @@ python run_due_campaign.py --contacts samples\funnel_contacts.csv --funnel-confi
 
 하루 100명 이하 소량 발송은 Gmail + Apps Script로 시작할 수 있습니다. 승인된 고객만 Google Sheets에 올릴 CSV로 내보냅니다.
 웹 화면에서는 `발송 승인` 후 `오늘 진행 순서`의 `Gmail 결과` 단계에서 `발송 준비`를 누르면 같은 파일을 만들 수 있습니다.
+이후 `시트에 올리기`를 누르면 비공개 Google Sheet의 `GmailQueue` 탭에 바로 업로드합니다.
 
 ```powershell
 python export_gmail_queue.py --contacts samples\funnel_contacts.csv --funnel-config samples\drip_config.json --lead-state-path samples\lead_state_drip.json --campaign-id gmail-demo --approval-path outbox\web_dashboard_approval.csv --output outbox\gmail_send_queue.csv
@@ -137,6 +138,7 @@ python fetch_gmail_results.py --source "https://docs.google.com/spreadsheets/d/<
 
 고객 이메일이 들어간 시트는 비공개 Google Sheet로 운영하는 것이 안전합니다. Google OAuth 클라이언트 JSON을 `config\google_oauth_client.json`에 저장한 뒤 웹 화면에서 `Google 연결`을 한 번 완료하고 `비공개 시트 가져오기`를 누릅니다.
 웹 화면의 `Gmail 확인` 탭에서 필요한 Google 설정과 준비 상태를 안내합니다.
+Sheet 업로드까지 사용하려면 기존 읽기 전용 토큰이 아니라 새 `Google 연결`로 읽기/쓰기 권한을 승인해야 합니다.
 
 ```powershell
 python fetch_private_gmail_results.py --source "https://docs.google.com/spreadsheets/d/<sheet-id>/edit#gid=0" --sheet-name GmailQueue --credentials config\google_oauth_client.json --token state\google_sheets_token.json --output outbox\gmail_send_queue.csv

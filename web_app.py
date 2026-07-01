@@ -22,6 +22,7 @@ from fetch_private_gmail_results import (
     fetch_private_results as fetch_private_gmail_results,
 )
 from import_gmail_results import import_results as import_gmail_results
+from upload_private_gmail_queue import upload_queue as upload_private_gmail_queue
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -148,6 +149,10 @@ def make_handler():
                     return
                 if parsed.path == "/api/gmail/fetch-private":
                     result = _handle_fetch_private_gmail_results(payload)
+                    self._json_response(200, result)
+                    return
+                if parsed.path == "/api/gmail/upload-private":
+                    result = _handle_upload_private_gmail_queue(payload)
                     self._json_response(200, result)
                     return
                 if parsed.path == "/api/gmail/compare":
@@ -489,6 +494,18 @@ def _handle_fetch_private_gmail_results(payload: dict[str, object]) -> dict[str,
     return {"ok": True, "summary": summary}
 
 
+def _handle_upload_private_gmail_queue(payload: dict[str, object]) -> dict[str, object]:
+    config = _request_config(payload)
+    summary = upload_private_gmail_queue(
+        source=config["gmail_source"],
+        input_path=_safe_path(config["gmail_results"]),
+        credentials_path=_safe_path(config["google_credentials"]),
+        token_path=_safe_path(config["google_token"]),
+        sheet_name=config["gmail_sheet_name"],
+    )
+    return {"ok": True, "summary": summary}
+
+
 def _handle_compare_gmail_results(payload: dict[str, object]) -> dict[str, object]:
     config = _request_config(payload)
     result = compare_gmail_results(
@@ -593,6 +610,9 @@ def _google_token_status(path: Path) -> dict[str, object]:
         return {"valid": False, "detail": "Google 토큰 파일이 JSON 형식이 아닙니다."}
     if not isinstance(data, dict) or not data.get("refresh_token"):
         return {"valid": False, "detail": "Google 토큰에 refresh_token이 없습니다. Google 연결을 다시 실행하세요."}
+    scope = str(data.get("scope") or "")
+    if scope and "https://www.googleapis.com/auth/spreadsheets" not in scope.split():
+        return {"valid": False, "detail": "Google Sheet 업로드 권한이 없습니다. Google 연결을 다시 실행하세요."}
     return {"valid": True, "detail": "Google 연결이 완료됐습니다."}
 
 
@@ -2624,6 +2644,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
           <div class="work-status" id="gmailStepStatus">결과 확인 전입니다.</div>
           <div class="work-actions">
             <button id="exportGmailBtn" class="primary">발송 준비</button>
+            <button id="uploadPrivateGmailBtn">시트에 올리기</button>
             <button id="connectGoogleBtn">Google 연결</button>
             <button id="fetchPrivateGmailBtn">결과 가져오기</button>
             <button id="importGmailBtn">결과 반영</button>
@@ -2664,7 +2685,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
             <input id="gmail_source">
             <label for="gmail_sheet_name">Gmail 시트 이름</label>
             <input id="gmail_sheet_name">
-            <label for="gmail_results">Gmail 결과 파일</label>
+            <label for="gmail_results">Gmail 준비/결과 파일</label>
             <input id="gmail_results">
             <label for="google_credentials">Google 인증 파일</label>
             <input id="google_credentials">
@@ -2723,6 +2744,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     let gmailRows = [];
     let gmailCounts = {};
     let gmailQueuePending = 0;
+    let gmailUploadedRows = 0;
     let googleSetup = null;
 
     function formData() {
@@ -2739,7 +2761,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     }
 
     function busy(value) {
-      for (const id of ["planBtn", "dryRunBtn", "prepareApprovalBtn", "exportGmailBtn", "connectGoogleBtn", "fetchPrivateGmailBtn", "fetchGmailBtn", "importGmailBtn", "compareGmailBtn", "saveFlowBtn", "refreshBtn"]) {
+      for (const id of ["planBtn", "dryRunBtn", "prepareApprovalBtn", "exportGmailBtn", "uploadPrivateGmailBtn", "connectGoogleBtn", "fetchPrivateGmailBtn", "fetchGmailBtn", "importGmailBtn", "compareGmailBtn", "saveFlowBtn", "refreshBtn"]) {
         const element = document.getElementById(id);
         if (element) element.disabled = value;
       }
@@ -2973,6 +2995,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       const summary = `
         <div class="message-tools">
           <button type="button" id="exportGmailInTabBtn">Gmail 발송 준비</button>
+          <button type="button" id="uploadPrivateGmailInTabBtn">비공개 시트에 올리기</button>
           <button type="button" id="connectGoogleInTabBtn">Google 연결</button>
           <button type="button" id="fetchPrivateGmailInTabBtn">비공개 시트 가져오기</button>
           <button type="button" id="fetchGmailInTabBtn">Gmail 시트 가져오기</button>
@@ -3002,6 +3025,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       }
 
       document.getElementById("exportGmailInTabBtn").addEventListener("click", exportGmailQueue);
+      document.getElementById("uploadPrivateGmailInTabBtn").addEventListener("click", uploadPrivateGmailQueue);
       document.getElementById("connectGoogleInTabBtn").addEventListener("click", connectGoogle);
       document.getElementById("fetchPrivateGmailInTabBtn").addEventListener("click", fetchPrivateGmailResults);
       document.getElementById("fetchGmailInTabBtn").addEventListener("click", fetchGmailResults);
@@ -3032,7 +3056,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       return `
         <section class="setup-guide">
           <h3>비공개 Google Sheet 연결 안내</h3>
-          <p class="note">고객 이메일이 들어간 Sheet는 공개하지 않고 Google 로그인 권한으로 읽습니다.</p>
+          <p class="note">고객 이메일이 들어간 Sheet는 공개하지 않고 Google 로그인 권한으로 읽고 씁니다.</p>
           <div class="message-tools">
             <a class="link-button" href="https://console.cloud.google.com/apis/library/sheets.googleapis.com" target="_blank" rel="noopener">Google Sheets API 열기</a>
             <a class="link-button" href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">OAuth Client 만들기</a>
@@ -3043,7 +3067,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
             <span>1. Google Cloud에서 Sheets API를 켜고 OAuth Client를 만듭니다.</span>
             <span>2. 승인된 리디렉션 URI에 <code>${safe(redirectUri)}</code> 를 넣습니다.</span>
             <span>3. 받은 JSON을 <code>${safe(credentialsPath)}</code> 로 저장합니다.</span>
-            <span>4. Google 연결 후 토큰은 <code>${safe(tokenPath)}</code> 에 저장됩니다.</span>
+            <span>4. Google 연결 후 읽기/쓰기 토큰은 <code>${safe(tokenPath)}</code> 에 저장됩니다.</span>
           </div>
           <div class="setup-steps">${stepHtml}</div>
         </section>`;
@@ -3132,6 +3156,8 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
         "gmailStepStatus",
         gmailTotal
           ? `같음 ${gmailCounts.matched || 0}건 / 확인 필요 ${gmailCounts.needs_review || 0}건`
+          : gmailUploadedRows
+            ? `비공개 시트 업로드 ${gmailUploadedRows}건`
           : gmailQueuePending
             ? `Gmail 발송 준비 ${gmailQueuePending}건`
             : "결과 확인 전입니다."
@@ -3288,6 +3314,26 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
         updateWorkflowStatus();
         switchTab("gmail");
         note(`Gmail 발송 준비 완료: ${gmailQueuePending}건`);
+      } catch (error) {
+        note(error.message);
+      } finally {
+        busy(false);
+      }
+    }
+
+    async function uploadPrivateGmailQueue() {
+      busy(true);
+      note("Gmail 발송 준비 파일을 비공개 시트에 올리는 중입니다...");
+      try {
+        const data = await api("/api/gmail/upload-private", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(formData())
+        });
+        gmailUploadedRows = data.summary.rows || 0;
+        updateWorkflowStatus();
+        switchTab("gmail");
+        note(`비공개 시트 업로드 완료: ${gmailUploadedRows}건`);
       } catch (error) {
         note(error.message);
       } finally {
@@ -3484,6 +3530,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       document.getElementById("dryRunBtn").addEventListener("click", preview);
       document.getElementById("prepareApprovalBtn").addEventListener("click", prepareApproval);
       document.getElementById("exportGmailBtn").addEventListener("click", exportGmailQueue);
+      document.getElementById("uploadPrivateGmailBtn").addEventListener("click", uploadPrivateGmailQueue);
       document.getElementById("connectGoogleBtn").addEventListener("click", connectGoogle);
       document.getElementById("fetchPrivateGmailBtn").addEventListener("click", fetchPrivateGmailResults);
       document.getElementById("fetchGmailBtn").addEventListener("click", fetchGmailResults);

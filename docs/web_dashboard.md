@@ -32,7 +32,7 @@ http://127.0.0.1:8765
 5. Gmail 결과
 
 각 단계는 현재 상태와 실행 버튼을 함께 보여주며, 다음에 할 작업은 강조해서 표시한다.
-`Gmail 결과` 단계에서는 승인된 고객으로 Gmail 발송 준비 파일을 만들고, 발송 후 결과를 가져와 고객 상태에 반영한다.
+`Gmail 결과` 단계에서는 승인된 고객으로 Gmail 발송 준비 파일을 만들고, 비공개 Google Sheet에 올린 뒤, 발송 후 결과를 가져와 고객 상태에 반영한다.
 
 ## 메일 흐름 관리
 
@@ -81,10 +81,11 @@ outbox/gmail_send_queue.csv
 사용 방식:
 
 - `Gmail 시트 링크`: Google Sheet 주소 또는 CSV export 주소
-- `Gmail 발송 준비`: 승인된 고객만 `Gmail 결과 파일`에 저장
-- `Google 연결`: 비공개 Google Sheet를 읽기 위한 Google 로그인 연결
+- `Gmail 발송 준비`: 승인된 고객만 `Gmail 준비/결과 파일`에 저장
+- `시트에 올리기`: `Gmail 준비/결과 파일`을 비공개 Google Sheet의 `GmailQueue` 탭에 업로드
+- `Google 연결`: 비공개 Google Sheet를 읽고 쓰기 위한 Google 로그인 연결
 - `비공개 시트 가져오기`: 로그인 권한으로 비공개 Google Sheet를 읽어 결과 파일 저장
-- `Gmail 시트 가져오기`: 시트 결과를 `Gmail 결과 파일`로 저장
+- `Gmail 시트 가져오기`: 시트 결과를 `Gmail 준비/결과 파일`로 저장
 - `Gmail 결과 반영`: 성공/실패 결과를 고객 상태와 고객별 기록에 반영
 - `Gmail 결과 확인`: Gmail 결과와 앱 고객 상태가 맞는지 비교
 
@@ -93,6 +94,8 @@ outbox/gmail_send_queue.csv
 - Google 인증 파일: `config/google_oauth_client.json`
 - Google 토큰 파일: `state/google_sheets_token.json`
 - Gmail 시트 이름: `GmailQueue`
+
+업로드 기능을 쓰려면 Google 연결에서 Sheets 읽기/쓰기 권한을 승인해야 한다.
 
 `Gmail 확인` 탭에는 비공개 Google Sheet 연결 안내가 표시된다.
 

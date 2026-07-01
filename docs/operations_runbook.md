@@ -166,6 +166,14 @@ python fetch_gmail_results.py --source "https://docs.google.com/spreadsheets/d/<
 
 운영 Sheet에 고객 이메일이 들어가면 공개/게시 대신 비공개 Google Sheet OAuth 방식을 사용한다.
 
+발송 전에는 Gmail 발송 준비 파일을 비공개 Google Sheet에 업로드한다.
+
+```powershell
+python upload_private_gmail_queue.py --source "https://docs.google.com/spreadsheets/d/<sheet-id>/edit#gid=0" --sheet-name GmailQueue --credentials config\google_oauth_client.json --token state\google_sheets_token.json --input outbox\gmail_send_queue.csv
+```
+
+발송 후에는 같은 비공개 Sheet에서 결과를 가져온다.
+
 ```powershell
 python fetch_private_gmail_results.py --source "https://docs.google.com/spreadsheets/d/<sheet-id>/edit#gid=0" --sheet-name GmailQueue --credentials config\google_oauth_client.json --token state\google_sheets_token.json --output outbox\gmail_send_queue.csv
 ```

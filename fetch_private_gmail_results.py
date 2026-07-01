@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import quote, urlencode, urlparse
 
 
-SHEETS_READONLY_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
+SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 DEFAULT_REDIRECT_URI = "http://127.0.0.1:8765/oauth/google/callback"
 DEFAULT_SHEET_NAME = "GmailQueue"
 
@@ -89,7 +89,7 @@ def build_authorization_url(
         "client_id": client["client_id"],
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "scope": SHEETS_READONLY_SCOPE,
+        "scope": SHEETS_SCOPE,
         "access_type": "offline",
         "prompt": "consent",
         "include_granted_scopes": "true",

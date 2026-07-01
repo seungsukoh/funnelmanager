@@ -93,6 +93,8 @@
 - 웹 첫 화면을 `오늘 진행 순서` 카드형 흐름으로 개선
 - 다음 작업 강조와 단계별 상태 문구 추가
 - 웹 화면에 승인된 고객 기준 `Gmail 발송 준비` 버튼/API 추가
+- 비공개 Google Sheet 업로드 CLI/API/버튼 추가: `upload_private_gmail_queue.py`
+- Google OAuth 범위를 Sheets 읽기/쓰기 권한으로 확장
 
 ### 진행 중
 
@@ -110,9 +112,9 @@
 - Word 본문 변환에서 표/서식 보존 범위 사용자 검증
 - 웹 화면에서 테스트 수신자 입력 후 승인 대상만 Outlook display로 여는 기능 추가
 - Windows 작업 스케줄러 등록/해제 스크립트 추가
-- 실제 Google Cloud OAuth Client 생성 및 비공개 Sheet 연결 테스트
+- 실제 Google Cloud OAuth Client 생성 및 비공개 Sheet 업로드/가져오기 테스트
 - Gmail 결과 확인에서 확인 필요 항목만 다시 처리하는 운영 흐름 추가
-- Google Sheet 업로드 자동화 UX 설계
+- Google Apps Script 발송 실행까지 앱에서 안내/자동화할지 검토
 
 ### 리스크
 
