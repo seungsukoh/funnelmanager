@@ -69,7 +69,9 @@ export const FLOW_STEPS = [
     template: "event_followup",
     subject: "{{이름}}님, 행사 참석 감사드립니다",
     text_body: "{{이름}}님 안녕하세요.\n행사에 참석해 주셔서 감사합니다.\n다음 상담이 필요하시면 회신해 주세요.",
+    schedule_mode: "days",
     next_send_after_days: 2,
+    next_send_at: "",
     next_step: "attended_second",
     status_after: "진행중",
     send_after_label: "2일 뒤"
@@ -83,7 +85,9 @@ export const FLOW_STEPS = [
     template: "no_show_followup",
     subject: "{{이름}}님, 행사 자료를 보내드립니다",
     text_body: "{{이름}}님 안녕하세요.\n참석하지 못하신 분들을 위해 행사 핵심 자료를 정리했습니다.",
+    schedule_mode: "days",
     next_send_after_days: 3,
+    next_send_at: "",
     next_step: "noshow_second",
     status_after: "진행중",
     send_after_label: "3일 뒤"
@@ -97,7 +101,9 @@ export const FLOW_STEPS = [
     template: "second_followup",
     subject: "{{이름}}님, 다음 단계 안내드립니다",
     text_body: "{{이름}}님께 맞는 다음 단계를 안내드립니다.\n편한 시간에 상담 일정을 선택해 주세요.",
+    schedule_mode: "none",
     next_send_after_days: "",
+    next_send_at: "",
     next_step: "",
     status_after: "상담안내",
     send_after_label: "후속 발송 없음"
@@ -161,7 +167,9 @@ CREATE TABLE IF NOT EXISTS funnel_steps (
   template TEXT NOT NULL DEFAULT '',
   subject TEXT NOT NULL DEFAULT '',
   text_body TEXT NOT NULL DEFAULT '',
+  schedule_mode TEXT NOT NULL DEFAULT '',
   next_send_after_days TEXT NOT NULL DEFAULT '',
+  next_send_at TEXT NOT NULL DEFAULT '',
   next_step TEXT NOT NULL DEFAULT '',
   status_after TEXT NOT NULL DEFAULT '',
   send_after_label TEXT NOT NULL DEFAULT '',
@@ -254,8 +262,16 @@ export async function ensureDatabase(env) {
   for (const statement of CORE_SCHEMA.split(";").map((part) => part.trim()).filter(Boolean)) {
     await env.DB.prepare(statement).run();
   }
+  await ensureColumn(env, "funnel_steps", "schedule_mode", "TEXT NOT NULL DEFAULT ''");
+  await ensureColumn(env, "funnel_steps", "next_send_at", "TEXT NOT NULL DEFAULT ''");
   await seedDatabase(env);
   return true;
+}
+
+async function ensureColumn(env, table, column, definition) {
+  const { results = [] } = await env.DB.prepare(`PRAGMA table_info(${table})`).all();
+  if (results.some((row) => row.name === column)) return;
+  await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
 }
 
 export async function getMeta(env, key) {
@@ -430,7 +446,9 @@ export async function flowStepsFor(env) {
        template,
        subject,
        text_body,
+       schedule_mode,
        next_send_after_days,
+       next_send_at,
        next_step,
        status_after,
        send_after_label
@@ -443,6 +461,11 @@ export async function flowStepsFor(env) {
 export async function saveFlowSteps(env, steps) {
   if (!(await ensureDatabase(env))) return Array.isArray(steps) && steps.length ? steps : FLOW_STEPS;
   const rows = Array.isArray(steps) ? steps : [];
+  const ids = rows.map((row, index) => String(row.id || row.template || `flow_${index + 1}`)).filter(Boolean);
+  if (ids.length) {
+    const placeholders = ids.map(() => "?").join(", ");
+    await env.DB.prepare(`DELETE FROM funnel_steps WHERE id NOT IN (${placeholders})`).bind(...ids).run();
+  }
   for (let index = 0; index < rows.length; index += 1) {
     await upsertFlowStep(env, { ...rows[index], order: rows[index].order || index + 1 });
   }
@@ -453,8 +476,8 @@ export async function upsertFlowStep(env, step) {
   await env.DB.prepare(
     `INSERT INTO funnel_steps
       (id, sort_order, stage_label, priority, audience, template, subject, text_body,
-       next_send_after_days, next_step, status_after, send_after_label, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+       schedule_mode, next_send_after_days, next_send_at, next_step, status_after, send_after_label, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
      ON CONFLICT(id) DO UPDATE SET
        sort_order = excluded.sort_order,
        stage_label = excluded.stage_label,
@@ -463,7 +486,9 @@ export async function upsertFlowStep(env, step) {
        template = excluded.template,
        subject = excluded.subject,
        text_body = excluded.text_body,
+       schedule_mode = excluded.schedule_mode,
        next_send_after_days = excluded.next_send_after_days,
+       next_send_at = excluded.next_send_at,
        next_step = excluded.next_step,
        status_after = excluded.status_after,
        send_after_label = excluded.send_after_label,
@@ -478,7 +503,9 @@ export async function upsertFlowStep(env, step) {
       String(step.template || ""),
       String(step.subject || ""),
       String(step.text_body || ""),
+      String(step.schedule_mode || ""),
       String(step.next_send_after_days || ""),
+      String(step.next_send_at || ""),
       String(step.next_step || ""),
       String(step.status_after || ""),
       String(step.send_after_label || "")

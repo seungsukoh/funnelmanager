@@ -586,10 +586,29 @@ tbody tr:last-child td {
   gap: 14px;
 }
 
+.flow-help {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #4d5c6f;
+  line-height: 1.45;
+}
+
+.flow-help strong {
+  color: #1d2430;
+}
+
 .flow-step {
   display: grid;
   gap: 12px;
   padding: 16px;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  background: #ffffff;
 }
 
 .flow-head {
@@ -599,10 +618,20 @@ tbody tr:last-child td {
   align-items: start;
 }
 
+.flow-head p {
+  margin-bottom: 0;
+  color: #5b687a;
+  line-height: 1.45;
+}
+
 .flow-grid {
   display: grid;
-  grid-template-columns: 1fr 160px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+}
+
+.schedule-grid {
+  grid-template-columns: minmax(180px, 260px) minmax(180px, 1fr);
 }
 
 .file-button {

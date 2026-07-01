@@ -534,12 +534,17 @@ function renderFlowTab() {
       <div class="panel-title">
         <div>
           <h2>단계별 메일</h2>
-          <p>퍼널 단계마다 다른 제목과 본문을 관리합니다.</p>
+          <p>각 단계에서 보낼 메일과, 발송 후 다음 메일 예약 방식을 정합니다.</p>
         </div>
         <div class="button-row">
           <button type="button" data-action="load-flow">불러오기</button>
+          <button type="button" data-action="add-flow-step">메일 추가</button>
           <button class="primary" type="button" data-action="save-flow">저장</button>
         </div>
+      </div>
+      <div class="flow-help">
+        <strong>메일 흐름의 역할</strong>
+        <span>명단이 퍼널 단계에 들어오면 이 화면의 순서대로 메일 내용과 다음 예약을 확인합니다. 예: 첫 메일 발송 후 3일 뒤 두 번째 메일 예약, 또는 2026-07-15에 다음 메일 예약.</span>
       </div>
       <div class="flow-list">
         ${
@@ -552,26 +557,52 @@ function renderFlowTab() {
 }
 
 function renderFlowStep(step, index) {
+  const mode = flowScheduleMode(step);
   return `
     <article class="flow-step">
       <div class="flow-head">
         <div>
-          <span class="mini-badge">${safe(step.stage_label || `단계 ${index + 1}`)}</span>
-          <h3>${safe(step.audience || "대상 조건 없음")}</h3>
+          <span class="mini-badge">${index + 1}번째 메일</span>
+          <h3>${safe(step.stage_label || step.template || `메일 ${index + 1}`)}</h3>
+          <p>${safe(flowScheduleLabel(step))}</p>
         </div>
-        <label class="file-button">
-          Word 불러오기
-          <input type="file" accept=".docx" data-word-index="${index}" />
-        </label>
+        <div class="button-row">
+          <label class="file-button">
+            Word 불러오기
+            <input type="file" accept=".docx" data-word-index="${index}" />
+          </label>
+          <button type="button" data-flow-delete-index="${index}">삭제</button>
+        </div>
       </div>
       <div class="flow-grid">
+        <label class="field">
+          <span>단계 이름</span>
+          <input data-flow-index="${index}" data-flow-field="stage_label" value="${safe(step.stage_label || "")}" />
+        </label>
+        <label class="field">
+          <span>대상 설명</span>
+          <input data-flow-index="${index}" data-flow-field="audience" value="${safe(step.audience || "")}" />
+        </label>
         <label class="field">
           <span>메일 이름</span>
           <input data-flow-index="${index}" data-flow-field="template" value="${safe(step.template || "")}" />
         </label>
         <label class="field">
-          <span>다음 메일까지</span>
-          <input data-flow-index="${index}" data-flow-field="next_send_after_days" value="${safe(step.next_send_after_days || "")}" />
+          <span>후속 발송</span>
+          <select data-flow-index="${index}" data-flow-field="schedule_mode" data-flow-repaint="yes">
+            <option value="none" ${mode === "none" ? "selected" : ""}>후속 메일 없음</option>
+            <option value="days" ${mode === "days" ? "selected" : ""}>이 메일 발송 후 며칠 뒤</option>
+            <option value="date" ${mode === "date" ? "selected" : ""}>특정 날짜에 발송</option>
+          </select>
+        </label>
+      </div>
+      <div class="flow-grid schedule-grid">
+        ${renderFlowScheduleControls(step, index, mode)}
+        <label class="field">
+          <span>다음에 보낼 메일</span>
+          <select data-flow-index="${index}" data-flow-field="next_step">
+            ${renderNextStepOptions(step, index)}
+          </select>
         </label>
       </div>
       <label class="field">
@@ -583,6 +614,54 @@ function renderFlowStep(step, index) {
         <textarea rows="8" data-flow-index="${index}" data-flow-field="text_body">${safe(step.text_body || "")}</textarea>
       </label>
     </article>`;
+}
+
+function renderFlowScheduleControls(step, index, mode) {
+  if (mode === "date") {
+    return `
+      <label class="field">
+        <span>예약 날짜</span>
+        <input type="date" data-flow-index="${index}" data-flow-field="next_send_at" value="${safe(step.next_send_at || "")}" />
+      </label>`;
+  }
+  if (mode === "days") {
+    return `
+      <label class="field">
+        <span>며칠 후</span>
+        <input type="number" min="0" step="1" data-flow-index="${index}" data-flow-field="next_send_after_days" value="${safe(step.next_send_after_days || "")}" />
+      </label>`;
+  }
+  return `
+    <label class="field">
+      <span>예약</span>
+      <input value="후속 메일을 예약하지 않습니다." disabled />
+    </label>`;
+}
+
+function renderNextStepOptions(step, index) {
+  const current = String(step.next_step || "");
+  const options = [`<option value="" ${current ? "" : "selected"}>선택 안 함</option>`];
+  state.flowSteps.forEach((candidate, candidateIndex) => {
+    if (candidateIndex === index) return;
+    const id = flowStepId(candidate, candidateIndex);
+    const label = candidate.stage_label || candidate.template || `메일 ${candidateIndex + 1}`;
+    options.push(`<option value="${safe(id)}" ${current === id ? "selected" : ""}>${safe(label)}</option>`);
+  });
+  return options.join("");
+}
+
+function flowScheduleMode(step) {
+  if (step.schedule_mode) return step.schedule_mode;
+  if (step.next_send_at) return "date";
+  if (step.next_send_after_days !== undefined && String(step.next_send_after_days).trim() !== "") return "days";
+  return "none";
+}
+
+function flowScheduleLabel(step) {
+  const mode = flowScheduleMode(step);
+  if (mode === "date" && step.next_send_at) return `${step.next_send_at}에 다음 메일 예약`;
+  if (mode === "days" && String(step.next_send_after_days || "").trim() !== "") return `이 메일 발송 후 ${step.next_send_after_days}일 뒤 다음 메일 예약`;
+  return "이 메일 뒤에는 자동 예약 없음";
 }
 
 function renderApprovalTab() {
@@ -789,10 +868,12 @@ function bindEvents() {
   }
 
   for (const input of document.querySelectorAll("[data-flow-index]")) {
-    input.addEventListener("input", () => {
-      const step = state.flowSteps[Number(input.dataset.flowIndex)];
-      if (step) step[input.dataset.flowField] = input.value;
-    });
+    input.addEventListener("input", () => updateFlowField(input));
+    input.addEventListener("change", () => updateFlowField(input));
+  }
+
+  for (const button of document.querySelectorAll("[data-flow-delete-index]")) {
+    button.addEventListener("click", () => deleteFlowStep(Number(button.dataset.flowDeleteIndex)));
   }
 
   for (const input of document.querySelectorAll("[data-approval-index]")) {
@@ -827,6 +908,77 @@ function countApprovals(rows) {
   return { ready: rows.length, approved, waiting: rows.length - approved };
 }
 
+function updateFlowField(input) {
+  const step = state.flowSteps[Number(input.dataset.flowIndex)];
+  if (!step) return;
+  const field = input.dataset.flowField;
+  step[field] = input.value;
+  if (field === "schedule_mode") {
+    if (input.value === "none") {
+      step.next_send_after_days = "";
+      step.next_send_at = "";
+      step.next_step = "";
+    } else if (input.value === "days") {
+      step.next_send_at = "";
+      if (!String(step.next_send_after_days || "").trim()) step.next_send_after_days = "1";
+      if (!step.next_step) step.next_step = nextFlowStepId(Number(input.dataset.flowIndex));
+    } else if (input.value === "date") {
+      step.next_send_after_days = "";
+      if (!step.next_step) step.next_step = nextFlowStepId(Number(input.dataset.flowIndex));
+    }
+  }
+  if (input.dataset.flowRepaint === "yes") render();
+}
+
+async function addFlowStep() {
+  const index = state.flowSteps.length;
+  const id = flowStepId({}, index);
+  state.flowSteps.push({
+    id,
+    order: index + 1,
+    stage_label: `새 메일 ${index + 1}`,
+    priority: (index + 1) * 10,
+    audience: "대상 설명을 입력하세요",
+    template: `email_${index + 1}`,
+    subject: "",
+    text_body: "",
+    schedule_mode: "none",
+    next_send_after_days: "",
+    next_send_at: "",
+    next_step: "",
+    status_after: "",
+    send_after_label: "후속 발송 없음"
+  });
+  state.activeTab = "flow";
+  setNotice("메일 단계를 추가했습니다. 제목과 본문을 입력한 뒤 저장하세요.");
+  render();
+}
+
+async function deleteFlowStep(index) {
+  const removed = state.flowSteps[index];
+  if (!removed) return;
+  const removedId = flowStepId(removed, index);
+  state.flowSteps.splice(index, 1);
+  state.flowSteps.forEach((step, stepIndex) => {
+    step.order = stepIndex + 1;
+    if (step.next_step === removedId) step.next_step = "";
+  });
+  setNotice("메일 단계를 삭제했습니다. 저장을 눌러 반영하세요.");
+  render();
+}
+
+function nextFlowStepId(index) {
+  const next = state.flowSteps[index + 1];
+  return next ? flowStepId(next, index + 1) : "";
+}
+
+function flowStepId(step, index) {
+  if (step.id) return String(step.id);
+  if (step.template) return String(step.template).trim().replace(/[^a-zA-Z0-9_-]+/g, "_") || `email_${index + 1}`;
+  if (globalThis.crypto?.randomUUID) return `flow_${globalThis.crypto.randomUUID()}`;
+  return `flow_${Date.now()}_${index + 1}`;
+}
+
 async function runAction(action) {
   const handlers = {
     "open-settings": openSettings,
@@ -836,6 +988,7 @@ async function runAction(action) {
     plan,
     "load-flow": loadFlow,
     "save-flow": saveFlow,
+    "add-flow-step": addFlowStep,
     "prepare-approval": prepareApproval,
     "save-approval": saveApproval,
     preview,
@@ -915,14 +1068,51 @@ async function loadFlow() {
 
 async function saveFlow() {
   await withBusy("메일 흐름을 저장하는 중입니다.", async () => {
+    const steps = normalizeFlowStepsForSave();
     const data = await api("/api/message-flow/save", {
       method: "POST",
-      body: JSON.stringify({ ...formData(), steps: state.flowSteps })
+      body: JSON.stringify({ ...formData(), steps })
     });
     state.flowSteps = data.steps || [];
     state.templates = data.templates || [];
     state.activeTab = "flow";
     setNotice(messageFrom(data, "메일 흐름을 저장했습니다."), "success");
+  });
+}
+
+function normalizeFlowStepsForSave() {
+  return state.flowSteps.map((step, index) => {
+    const mode = flowScheduleMode(step);
+    const normalized = {
+      ...step,
+      id: flowStepId(step, index),
+      order: index + 1,
+      priority: Number(step.priority || (index + 1) * 10),
+      schedule_mode: mode
+    };
+    if (mode === "days") {
+      normalized.next_send_at = "";
+      normalized.next_send_after_days = String(step.next_send_after_days || "").trim();
+      if (!normalized.next_send_after_days) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 며칠 뒤 보낼지 입력하세요.`);
+      if (!normalized.next_step) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 다음에 보낼 메일을 선택하세요.`);
+      normalized.send_after_label = normalized.next_send_after_days
+        ? `이 메일 발송 후 ${normalized.next_send_after_days}일 뒤`
+        : "후속 발송 없음";
+    } else if (mode === "date") {
+      normalized.next_send_after_days = "";
+      normalized.next_send_at = String(step.next_send_at || "").trim();
+      if (!normalized.next_send_at) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 예약 날짜를 선택하세요.`);
+      if (!normalized.next_step) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 다음에 보낼 메일을 선택하세요.`);
+      normalized.send_after_label = normalized.next_send_at
+        ? `${normalized.next_send_at}에 발송`
+        : "특정 날짜 선택 필요";
+    } else {
+      normalized.next_send_after_days = "";
+      normalized.next_send_at = "";
+      normalized.next_step = "";
+      normalized.send_after_label = "후속 발송 없음";
+    }
+    return normalized;
   });
 }
 
