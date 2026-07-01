@@ -106,6 +106,7 @@
 - Cloudflare Gmail API 테스트 발송 추가: 테스트 수신자 1명만 허용, 발송 로그 D1 저장
 - Gmail API 테스트 발송 검증: JS/Python 문법 검사, Vite 빌드, OAuth 권한 URL, 준비 전 무발송 응답, frontend audit 통과
 - Google 상태 확인 UX 보강: 상태 API 실패도 화면에 표시하고 `/api/google/status` 브라우저 직접 확인 지원
+- Google 상태 API 500 방어: D1 초기화 실패 시 500 대신 진단 메시지 반환
 
 ### 진행 중
 

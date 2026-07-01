@@ -41,7 +41,17 @@ function normalizeClient(raw) {
 export async function googleSetup(env, source = "") {
   const hasDb = hasDatabase(env);
   const client = googleClient(env);
-  const token = hasDb ? await getStoredToken(env) : null;
+  let token = null;
+  let databaseReady = hasDb;
+  let databaseError = "";
+  if (hasDb) {
+    try {
+      token = await getStoredToken(env);
+    } catch (error) {
+      databaseReady = false;
+      databaseError = error.message || "D1 저장소 상태를 확인하지 못했습니다.";
+    }
+  }
   const hasToken = Boolean(token?.refresh_token || token?.access_token);
   const tokenScope = String(token?.scope || "");
   const tokenHasRequiredScopes = hasRequiredScopes(tokenScope);
@@ -50,13 +60,15 @@ export async function googleSetup(env, source = "") {
 
   return {
     hasDb,
+    databaseReady,
+    databaseError,
     hasClient: Boolean(client),
     hasToken,
     tokenValid,
     tokenHasRequiredScopes,
     sheetReady,
-    ready: hasDb && Boolean(client) && tokenValid && sheetReady,
-    sendReady: hasDb && Boolean(client) && tokenValid,
+    ready: databaseReady && Boolean(client) && tokenValid && sheetReady,
+    sendReady: databaseReady && Boolean(client) && tokenValid,
     tokenScope
   };
 }

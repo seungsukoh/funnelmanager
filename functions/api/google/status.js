@@ -11,7 +11,23 @@ export async function onRequestPost({ request, env }) {
 }
 
 async function statusResponse({ body, env }) {
-  const setup = await googleSetup(env, body.gmail_source || "");
+  let setup;
+  try {
+    setup = await googleSetup(env, body.gmail_source || "");
+  } catch (error) {
+    setup = {
+      hasDb: false,
+      databaseReady: false,
+      databaseError: error.message || "Google 상태 확인 중 오류가 발생했습니다.",
+      hasClient: false,
+      hasToken: false,
+      tokenValid: false,
+      tokenHasRequiredScopes: false,
+      sheetReady: Boolean(String(body.gmail_source || "").trim()),
+      ready: false,
+      sendReady: false
+    };
+  }
   return json({
     redirect_uri: "Cloudflare Functions OAuth callback",
     sheet_name: body.gmail_sheet_name || "GmailQueue",
@@ -19,8 +35,12 @@ async function statusResponse({ body, env }) {
       {
         id: "database",
         label: "D1 저장소",
-        done: setup.hasDb,
-        detail: setup.hasDb ? "D1 저장소가 연결됐습니다." : "Cloudflare Pages Functions에 D1 바인딩 DB를 연결하세요."
+        done: setup.databaseReady,
+        detail: setup.databaseReady
+          ? "D1 저장소가 연결됐습니다."
+          : setup.hasDb
+            ? `D1 바인딩은 있지만 초기화에 실패했습니다: ${setup.databaseError || "원인 미상"}`
+            : "Cloudflare Pages Functions에 D1 바인딩 DB를 연결하세요."
       },
       {
         id: "cloud",

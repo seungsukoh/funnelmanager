@@ -251,12 +251,8 @@ export function html(markup, status = 200) {
 
 export async function ensureDatabase(env) {
   if (!hasDatabase(env)) return false;
-  if (typeof env.DB.exec === "function") {
-    await env.DB.exec(CORE_SCHEMA);
-  } else {
-    for (const statement of CORE_SCHEMA.split(";").map((part) => part.trim()).filter(Boolean)) {
-      await env.DB.prepare(statement).run();
-    }
+  for (const statement of CORE_SCHEMA.split(";").map((part) => part.trim()).filter(Boolean)) {
+    await env.DB.prepare(statement).run();
   }
   await seedDatabase(env);
   return true;
