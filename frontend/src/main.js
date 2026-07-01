@@ -60,7 +60,8 @@ const state = {
   previewSummary: null,
   gmailRows: [],
   gmailCounts: {},
-  googleSteps: []
+  googleSteps: [],
+  googleStatusError: ""
 };
 
 function apiUrl(path) {
@@ -477,7 +478,24 @@ function renderGmailTab() {
 }
 
 function renderGoogleSteps() {
-  if (!state.googleSteps.length) return "";
+  if (state.googleStatusError) {
+    return `
+      <div class="checklist">
+        <div>
+          <strong>Google 상태 확인 실패</strong>
+          <span>${safe(state.googleStatusError)} Google 상태 버튼을 다시 눌러 확인하세요.</span>
+        </div>
+      </div>`;
+  }
+  if (!state.googleSteps.length) {
+    return `
+      <div class="checklist">
+        <div>
+          <strong>Google 상태 미확인</strong>
+          <span>Google 상태 버튼을 누르면 D1 저장소, Google Secret, Gmail 권한을 확인합니다.</span>
+        </div>
+      </div>`;
+  }
   return `
     <div class="checklist">
       ${state.googleSteps.map((step) => `
@@ -698,13 +716,21 @@ async function preview() {
 
 async function googleStatus() {
   await withBusy("Google 연결 상태를 확인하는 중입니다.", async () => {
-    const data = await api("/api/google/status", {
-      method: "POST",
-      body: JSON.stringify(formData())
-    });
-    state.googleSteps = data.steps || [];
-    state.activeTab = "gmail";
-    setNotice(messageFrom(data, "Google 연결 상태를 확인했습니다."), "success");
+    try {
+      const data = await api("/api/google/status", {
+        method: "POST",
+        body: JSON.stringify(formData())
+      });
+      state.googleStatusError = "";
+      state.googleSteps = data.steps || [];
+      state.activeTab = "gmail";
+      setNotice(messageFrom(data, "Google 연결 상태를 확인했습니다."), "success");
+    } catch (error) {
+      state.activeTab = "gmail";
+      state.googleSteps = [];
+      state.googleStatusError = error.message;
+      throw error;
+    }
   });
 }
 

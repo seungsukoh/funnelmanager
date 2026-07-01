@@ -1,8 +1,16 @@
 import { json, readBody } from "../../_shared/cloud-api.js";
 import { googleSetup } from "../../_shared/google.js";
 
+export async function onRequestGet({ request, env }) {
+  return statusResponse({ body: bodyFromUrl(request), env });
+}
+
 export async function onRequestPost({ request, env }) {
   const body = await readBody(request);
+  return statusResponse({ body, env });
+}
+
+async function statusResponse({ body, env }) {
   const setup = await googleSetup(env, body.gmail_source || "");
   return json({
     redirect_uri: "Cloudflare Functions OAuth callback",
@@ -55,4 +63,12 @@ export async function onRequestPost({ request, env }) {
     ],
     message: setup.ready ? "Google Sheet 연동 준비가 완료됐습니다." : "Google Sheet 연동 준비 상태를 확인했습니다."
   }, 200, env);
+}
+
+function bodyFromUrl(request) {
+  const params = new URL(request.url).searchParams;
+  return {
+    gmail_source: params.get("gmail_source") || "",
+    gmail_sheet_name: params.get("gmail_sheet_name") || "GmailQueue"
+  };
 }
