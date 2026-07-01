@@ -1,12 +1,13 @@
-import { CLOUD_NOTICE, FLOW_STEPS, json, readBody, templates } from "../../_shared/cloud-api.js";
+import { cloudNotice, FLOW_STEPS, json, readBody, saveFlowSteps, templatesFor } from "../../_shared/cloud-api.js";
 
-export async function onRequestPost({ request }) {
+export async function onRequestPost({ request, env }) {
   const body = await readBody(request);
-  const steps = Array.isArray(body.steps) && body.steps.length ? body.steps : FLOW_STEPS;
+  const inputSteps = Array.isArray(body.steps) && body.steps.length ? body.steps : FLOW_STEPS;
+  const steps = await saveFlowSteps(env, inputSteps);
   return json({
     path: "cloud/sample-funnel",
     steps,
-    templates: templates(),
-    message: `클라우드 미리보기에서는 저장하지 않고 화면에만 반영합니다. ${CLOUD_NOTICE}`
-  });
+    templates: await templatesFor(env),
+    message: `메일 흐름 ${steps.length}개를 저장했습니다. ${cloudNotice(env)}`
+  }, 200, env);
 }

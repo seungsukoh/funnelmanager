@@ -1,8 +1,8 @@
-import { CLOUD_NOTICE, DEFAULTS, json } from "../_shared/cloud-api.js";
+import { DEFAULTS, cloudNotice, json } from "../_shared/cloud-api.js";
 
-export function onRequestGet() {
+export function onRequestGet({ env }) {
   return json({
     ...DEFAULTS,
-    message: CLOUD_NOTICE
-  });
+    message: cloudNotice(env)
+  }, 200, env);
 }

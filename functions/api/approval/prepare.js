@@ -1,12 +1,13 @@
-import { approvalRows, countApproval, countBy, json, QUEUE_ROWS } from "../../_shared/cloud-api.js";
+import { cloudNotice, countApproval, countBy, json, prepareApprovalRowsFor, queueRowsFor } from "../../_shared/cloud-api.js";
 
-export function onRequestPost() {
-  const rows = approvalRows();
+export async function onRequestPost({ env }) {
+  const rows = await prepareApprovalRowsFor(env);
+  const queueRows = await queueRowsFor(env);
   return json({
     rows,
     counts: countApproval(rows),
-    queue_counts: countBy(QUEUE_ROWS, "status"),
+    queue_counts: countBy(queueRows, "status"),
     path: "cloud/preview-approval",
-    message: `클라우드 미리보기 승인 목록 ${rows.length}건을 만들었습니다. 실제 저장은 D1/R2 연결 후 활성화됩니다.`
-  });
+    message: `승인 목록 ${rows.length}건을 만들었습니다. ${cloudNotice(env)}`
+  }, 200, env);
 }

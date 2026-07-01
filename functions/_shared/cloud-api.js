@@ -131,14 +131,89 @@ export const GMAIL_ROWS = [
   }
 ];
 
-export function json(payload = {}, status = 200) {
+const CORE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS app_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS contacts (
+  email TEXT PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'ready',
+  template TEXT NOT NULL DEFAULT '',
+  rule TEXT NOT NULL DEFAULT '',
+  campaign_step TEXT NOT NULL DEFAULT '',
+  next_send_at TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '',
+  data_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS funnel_steps (
+  id TEXT PRIMARY KEY,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  stage_label TEXT NOT NULL DEFAULT '',
+  priority INTEGER NOT NULL DEFAULT 0,
+  audience TEXT NOT NULL DEFAULT '',
+  template TEXT NOT NULL DEFAULT '',
+  subject TEXT NOT NULL DEFAULT '',
+  text_body TEXT NOT NULL DEFAULT '',
+  next_send_after_days TEXT NOT NULL DEFAULT '',
+  next_step TEXT NOT NULL DEFAULT '',
+  status_after TEXT NOT NULL DEFAULT '',
+  send_after_label TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS approvals (
+  email TEXT NOT NULL,
+  template TEXT NOT NULL,
+  approved TEXT NOT NULL DEFAULT 'no',
+  rule TEXT NOT NULL DEFAULT '',
+  campaign_step TEXT NOT NULL DEFAULT '',
+  next_send_at TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (email, template)
+);
+
+CREATE TABLE IF NOT EXISTS gmail_results (
+  email TEXT NOT NULL,
+  template TEXT NOT NULL,
+  review_status TEXT NOT NULL DEFAULT 'pending',
+  gmail_status TEXT NOT NULL DEFAULT 'pending',
+  lead_status TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (email, template)
+);
+`;
+
+export function hasDatabase(env) {
+  return Boolean(env?.DB && typeof env.DB.prepare === "function");
+}
+
+export function cloudMode(env) {
+  return hasDatabase(env) ? "cloud_d1" : CLOUD_MODE;
+}
+
+export function cloudNotice(env) {
+  return hasDatabase(env)
+    ? "Cloudflare D1 저장소가 연결됐습니다. 실제 Gmail/OAuth 발송은 다음 단계에서 활성화됩니다."
+    : CLOUD_NOTICE;
+}
+
+export function json(payload = {}, status = 200, env = undefined) {
   return new Response(
     JSON.stringify(
       {
         ok: status < 400,
-        cloud_mode: CLOUD_MODE,
-        cloud_notice: CLOUD_NOTICE,
-        ...payload
+        ...payload,
+        cloud_mode: cloudMode(env),
+        cloud_notice: cloudNotice(env)
       },
       null,
       2
@@ -151,6 +226,64 @@ export function json(payload = {}, status = 200) {
       }
     }
   );
+}
+
+export async function ensureDatabase(env) {
+  if (!hasDatabase(env)) return false;
+  if (typeof env.DB.exec === "function") {
+    await env.DB.exec(CORE_SCHEMA);
+  } else {
+    for (const statement of CORE_SCHEMA.split(";").map((part) => part.trim()).filter(Boolean)) {
+      await env.DB.prepare(statement).run();
+    }
+  }
+  await seedDatabase(env);
+  return true;
+}
+
+async function seedDatabase(env) {
+  const seeded = await env.DB.prepare("SELECT value FROM app_meta WHERE key = ?").bind("seeded_v1").first();
+  if (seeded) return;
+
+  for (const row of QUEUE_ROWS) {
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO contacts
+        (email, name, status, template, rule, campaign_step, next_send_at, detail, data_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(
+        row.email,
+        displayName(row.email),
+        row.status,
+        row.template,
+        row.rule,
+        row.campaign_step,
+        row.next_send_at,
+        row.detail,
+        JSON.stringify(row)
+      )
+      .run();
+  }
+
+  for (const step of FLOW_STEPS) {
+    await upsertFlowStep(env, step);
+  }
+
+  for (const row of GMAIL_ROWS) {
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO gmail_results
+        (email, template, review_status, gmail_status, lead_status, detail)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+      .bind(row.email, row.template, row.review_status, row.gmail_status, row.lead_status, row.detail)
+      .run();
+  }
+
+  await env.DB.prepare("INSERT INTO app_meta (key, value) VALUES (?, ?)").bind("seeded_v1", new Date().toISOString()).run();
+}
+
+function displayName(email) {
+  return String(email || "").split("@")[0] || "";
 }
 
 export async function readBody(request) {
@@ -181,6 +314,198 @@ export function approvalRows() {
   }));
 }
 
+export async function queueRowsFor(env) {
+  if (!(await ensureDatabase(env))) return QUEUE_ROWS;
+  const { results = [] } = await env.DB.prepare(
+    `SELECT status, email, template, rule, campaign_step, next_send_at, detail
+     FROM contacts
+     ORDER BY created_at ASC, email ASC`
+  ).all();
+  return results;
+}
+
+export async function flowStepsFor(env) {
+  if (!(await ensureDatabase(env))) return FLOW_STEPS;
+  const { results = [] } = await env.DB.prepare(
+    `SELECT
+       id,
+       sort_order AS "order",
+       stage_label,
+       priority,
+       audience,
+       template,
+       subject,
+       text_body,
+       next_send_after_days,
+       next_step,
+       status_after,
+       send_after_label
+     FROM funnel_steps
+     ORDER BY sort_order ASC, id ASC`
+  ).all();
+  return results.length ? results : FLOW_STEPS;
+}
+
+export async function saveFlowSteps(env, steps) {
+  if (!(await ensureDatabase(env))) return Array.isArray(steps) && steps.length ? steps : FLOW_STEPS;
+  const rows = Array.isArray(steps) ? steps : [];
+  for (let index = 0; index < rows.length; index += 1) {
+    await upsertFlowStep(env, { ...rows[index], order: rows[index].order || index + 1 });
+  }
+  return flowStepsFor(env);
+}
+
+export async function upsertFlowStep(env, step) {
+  await env.DB.prepare(
+    `INSERT INTO funnel_steps
+      (id, sort_order, stage_label, priority, audience, template, subject, text_body,
+       next_send_after_days, next_step, status_after, send_after_label, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(id) DO UPDATE SET
+       sort_order = excluded.sort_order,
+       stage_label = excluded.stage_label,
+       priority = excluded.priority,
+       audience = excluded.audience,
+       template = excluded.template,
+       subject = excluded.subject,
+       text_body = excluded.text_body,
+       next_send_after_days = excluded.next_send_after_days,
+       next_step = excluded.next_step,
+       status_after = excluded.status_after,
+       send_after_label = excluded.send_after_label,
+       updated_at = CURRENT_TIMESTAMP`
+  )
+    .bind(
+      String(step.id || step.template || crypto.randomUUID()),
+      Number(step.order || 0),
+      String(step.stage_label || ""),
+      Number(step.priority || 0),
+      String(step.audience || ""),
+      String(step.template || ""),
+      String(step.subject || ""),
+      String(step.text_body || ""),
+      String(step.next_send_after_days || ""),
+      String(step.next_step || ""),
+      String(step.status_after || ""),
+      String(step.send_after_label || "")
+    )
+    .run();
+}
+
+export async function templatesFor(env) {
+  const steps = await flowStepsFor(env);
+  return steps.map((step) => ({
+    name: step.template,
+    subject: step.subject,
+    text_body: step.text_body,
+    html_body: ""
+  }));
+}
+
+export async function prepareApprovalRowsFor(env) {
+  const rows = (await queueRowsFor(env))
+    .filter((row) => row.status === "ready")
+    .map((row) => ({
+      approved: "no",
+      email: row.email,
+      template: row.template,
+      rule: row.rule,
+      campaign_step: row.campaign_step,
+      next_send_at: row.next_send_at,
+      detail: row.detail
+    }));
+
+  if (!(await ensureDatabase(env))) return rows;
+
+  for (const row of rows) {
+    const existing = await env.DB.prepare("SELECT approved FROM approvals WHERE email = ? AND template = ?")
+      .bind(row.email, row.template)
+      .first();
+    await upsertApproval(env, { ...row, approved: existing?.approved || row.approved });
+  }
+  return approvalRowsFor(env);
+}
+
+export async function approvalRowsFor(env) {
+  if (!(await ensureDatabase(env))) return approvalRows();
+  const { results = [] } = await env.DB.prepare(
+    `SELECT approved, email, template, rule, campaign_step, next_send_at, detail
+     FROM approvals
+     ORDER BY updated_at DESC, email ASC`
+  ).all();
+  return results.length ? results : approvalRows();
+}
+
+export async function saveApprovalRows(env, rows) {
+  if (!(await ensureDatabase(env))) return Array.isArray(rows) ? rows : [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    await upsertApproval(env, row);
+  }
+  return approvalRowsFor(env);
+}
+
+async function upsertApproval(env, row) {
+  await env.DB.prepare(
+    `INSERT INTO approvals
+      (email, template, approved, rule, campaign_step, next_send_at, detail, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(email, template) DO UPDATE SET
+       approved = excluded.approved,
+       rule = excluded.rule,
+       campaign_step = excluded.campaign_step,
+       next_send_at = excluded.next_send_at,
+       detail = excluded.detail,
+       updated_at = CURRENT_TIMESTAMP`
+  )
+    .bind(
+      String(row.email || ""),
+      String(row.template || ""),
+      String(row.approved || "no"),
+      String(row.rule || ""),
+      String(row.campaign_step || ""),
+      String(row.next_send_at || ""),
+      String(row.detail || "")
+    )
+    .run();
+}
+
+export async function gmailRowsFor(env) {
+  if (!(await ensureDatabase(env))) return GMAIL_ROWS;
+  const { results = [] } = await env.DB.prepare(
+    `SELECT review_status, email, gmail_status, template, lead_status, detail
+     FROM gmail_results
+     ORDER BY updated_at DESC, email ASC`
+  ).all();
+  return results.length ? results : GMAIL_ROWS;
+}
+
+export async function saveGmailRows(env, rows) {
+  if (!(await ensureDatabase(env))) return Array.isArray(rows) ? rows : [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    await env.DB.prepare(
+      `INSERT INTO gmail_results
+        (email, template, review_status, gmail_status, lead_status, detail, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(email, template) DO UPDATE SET
+         review_status = excluded.review_status,
+         gmail_status = excluded.gmail_status,
+         lead_status = excluded.lead_status,
+         detail = excluded.detail,
+         updated_at = CURRENT_TIMESTAMP`
+    )
+      .bind(
+        String(row.email || ""),
+        String(row.template || ""),
+        String(row.review_status || "pending"),
+        String(row.gmail_status || "pending"),
+        String(row.lead_status || ""),
+        String(row.detail || "")
+      )
+      .run();
+  }
+  return gmailRowsFor(env);
+}
+
 export function countApproval(rows) {
   const approved = rows.filter((row) => String(row.approved || "").toLowerCase() === "yes").length;
   return { ready: rows.length, approved, waiting: rows.length - approved };
@@ -196,9 +521,13 @@ export function templates() {
 }
 
 export function gmailCounts() {
+  return gmailCountsForRows(GMAIL_ROWS);
+}
+
+export function gmailCountsForRows(rows) {
   return {
-    matched: GMAIL_ROWS.filter((row) => row.review_status === "matched").length,
-    needs_review: GMAIL_ROWS.filter((row) => row.review_status === "needs_review").length,
-    pending: GMAIL_ROWS.filter((row) => row.review_status === "pending").length
+    matched: rows.filter((row) => row.review_status === "matched").length,
+    needs_review: rows.filter((row) => row.review_status === "needs_review").length,
+    pending: rows.filter((row) => row.review_status === "pending").length
   };
 }

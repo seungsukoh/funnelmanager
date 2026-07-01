@@ -120,6 +120,9 @@ Cloudflare Pages 설정:
 이 설정을 사용하면 저장소 루트의 `functions/`가 함께 배포되어 Cloudflare 화면에서 샘플 백엔드 API도 동작합니다.
 Root directory를 `frontend`로 설정하면 화면은 뜨지만 `functions/` API는 배포되지 않습니다.
 
+Cloudflare D1 데이터베이스를 Pages Functions에 `DB`라는 이름으로 바인딩하면 메일 흐름과 승인 내용이 저장됩니다.
+초기 테이블은 [migrations/0001_core.sql](migrations/0001_core.sql)에 있습니다.
+
 현재 Python API와 파일 저장 기능은 로컬 서버인 `web_app.py`에서 실행됩니다. Cloudflare에서 실제 발송 기능까지 쓰려면 다음 단계에서 API를 Cloudflare Worker/D1/R2 또는 별도 Python 서버로 분리해야 합니다.
 자세한 내용은 `docs/cloudflare_pages.md`를 참고하세요.
 

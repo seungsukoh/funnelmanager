@@ -5,11 +5,12 @@
 ## 현재 배포 구조
 
 - `frontend/`: Vite 기반 Cloudflare Pages 화면
+- `functions/`: Cloudflare Pages Functions API
+- `migrations/0001_core.sql`: D1 데이터베이스 초기 테이블
 - `web_app.py`: 기존 Python 로컬 API와 파일 기반 처리
-- Cloudflare Pages는 정적 프론트엔드 배포에 적합하다.
-- 현재 Python API는 Cloudflare Pages 안에서 직접 실행되지 않는다.
 
-즉, 지금 단계에서는 Cloudflare에서 화면을 바로 볼 수 있고, 실제 발송/파일 처리 기능은 로컬 Python API 또는 다음 단계의 클라우드 백엔드 연결이 필요하다.
+Cloudflare에서는 D1 바인딩이 있으면 저장형 API로 동작하고, D1 바인딩이 없으면 샘플 데이터 미리보기 API로 동작한다.
+Google OAuth와 실제 Gmail 발송은 다음 단계에서 Secret과 토큰 저장소를 연결해야 한다.
 
 ## Cloudflare Pages 연결
 
@@ -54,6 +55,32 @@ Cloudflare 설정:
 `functions/`는 Cloudflare Pages가 API로 배포한다.
 
 Root directory를 `frontend`로 설정하면 정적 화면만 배포되고 `functions/` API는 빠진다.
+
+## D1 데이터베이스 연결
+
+Cloudflare Dashboard에서 D1 데이터베이스를 만든다.
+
+1. Workers & Pages > D1 SQL Database로 이동한다.
+2. 데이터베이스를 만든다. 예: `funnelmanager`
+3. Pages 프로젝트 > Settings > Functions > D1 database bindings로 이동한다.
+4. Variable name을 `DB`로 입력한다.
+5. 방금 만든 D1 데이터베이스를 선택한다.
+6. Pages를 다시 배포한다.
+
+테이블은 첫 API 호출 시 자동으로 생성된다. 수동으로 만들고 싶으면 다음 SQL을 사용한다.
+
+```text
+migrations/0001_core.sql
+```
+
+Cloudflare CLI를 사용할 수 있으면 다음 흐름도 가능하다.
+
+```powershell
+npx wrangler d1 create funnelmanager
+npx wrangler d1 execute funnelmanager --remote --file migrations/0001_core.sql
+```
+
+D1이 연결되면 화면 상단 상태가 `백엔드 연결됨`으로 바뀌고, 메일 흐름 저장/승인 저장 같은 변경사항이 D1에 남는다.
 
 ## 환경 변수
 

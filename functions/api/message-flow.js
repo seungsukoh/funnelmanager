@@ -1,10 +1,11 @@
-import { CLOUD_NOTICE, FLOW_STEPS, json, templates } from "../_shared/cloud-api.js";
+import { cloudNotice, flowStepsFor, json, templatesFor } from "../_shared/cloud-api.js";
 
-export function onRequestGet() {
+export async function onRequestGet({ env }) {
+  const steps = await flowStepsFor(env);
   return json({
     path: "cloud/sample-funnel",
-    steps: FLOW_STEPS,
-    templates: templates(),
-    message: `클라우드 미리보기 메일 흐름입니다. ${CLOUD_NOTICE}`
-  });
+    steps,
+    templates: await templatesFor(env),
+    message: `메일 흐름 ${steps.length}개를 불러왔습니다. ${cloudNotice(env)}`
+  }, 200, env);
 }

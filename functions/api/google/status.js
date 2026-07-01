@@ -1,6 +1,6 @@
 import { json } from "../../_shared/cloud-api.js";
 
-export function onRequestPost() {
+export function onRequestPost({ env }) {
   return json({
     redirect_uri: "Cloudflare Functions OAuth callback",
     sheet_name: "GmailQueue",
@@ -31,5 +31,5 @@ export function onRequestPost() {
       }
     ],
     message: "Cloudflare 미리보기에서는 Google 연결 상태만 안내합니다."
-  });
+  }, 200, env);
 }

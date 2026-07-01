@@ -1,7 +1,8 @@
-import { QUEUE_ROWS, json } from "../_shared/cloud-api.js";
+import { json, queueRowsFor } from "../_shared/cloud-api.js";
 
-export function onRequestPost() {
-  const reportRows = QUEUE_ROWS.map((row) => ({
+export async function onRequestPost({ env }) {
+  const queueRows = await queueRowsFor(env);
+  const reportRows = queueRows.map((row) => ({
     status: row.status === "ready" ? "sent" : "skipped",
     email: row.email,
     template: row.template,
@@ -20,5 +21,5 @@ export function onRequestPost() {
     },
     report_rows: reportRows,
     message: "클라우드 미리보기 메일 결과입니다. 실제 메일은 발송하지 않았습니다."
-  });
+  }, 200, env);
 }
