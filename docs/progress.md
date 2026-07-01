@@ -98,6 +98,8 @@
 - Cloudflare Pages 자동 배포용 Vite 프론트엔드 구조 추가: `frontend/`
 - Cloudflare Pages 연결 가이드 작성: `docs/cloudflare_pages.md`
 - Cloudflare Pages 루트 빌드 오류 대응: 루트 `package.json`에서 `frontend` 빌드 후 `dist/` 생성 지원
+- Cloudflare 화면을 임시 배포 확인 화면에서 실제 퍼널 메일 운영 화면으로 교체
+- Vite 화면에서 명단 확인/단계별 메일/발송 승인/미리보기/Gmail 결과 탭과 Python API 호출 연결
 
 ### 진행 중
 
@@ -110,6 +112,8 @@
 
 ### 다음 작업
 
+- Cloudflare Pages 재배포 후 실제 퍼널 메일 운영 화면 표시 확인
+- Vite 화면의 버튼 동작을 클라우드 백엔드에서 실행할 API 구조 결정
 - Cloudflare Pages에서 GitHub 저장소 연결 및 production branch `main` 배포 확인
 - Python 로컬 API를 Cloudflare Worker/D1/R2 또는 별도 Python 서버로 분리할지 결정
 - Outlook 실제 발송은 사용자 테스트 주소와 Outlook 로그인 상태 확인 후 진행
