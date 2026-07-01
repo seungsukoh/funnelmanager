@@ -164,6 +164,12 @@ Google Sheets에 `outbox\gmail_send_queue.csv`를 가져온 뒤 Apps Script에 `
 python fetch_gmail_results.py --source "https://docs.google.com/spreadsheets/d/<sheet-id>/edit#gid=0" --output outbox\gmail_send_queue.csv
 ```
 
+운영 Sheet에 고객 이메일이 들어가면 공개/게시 대신 비공개 Google Sheet OAuth 방식을 사용한다.
+
+```powershell
+python fetch_private_gmail_results.py --source "https://docs.google.com/spreadsheets/d/<sheet-id>/edit#gid=0" --sheet-name GmailQueue --credentials config\google_oauth_client.json --token state\google_sheets_token.json --output outbox\gmail_send_queue.csv
+```
+
 그다음 로컬 상태에 반영한다.
 
 ```powershell

@@ -18,6 +18,7 @@
 - JSONL 발송 이력 기반 중복 발송 방지
 - SendGrid/Postmark API 또는 Outlook 데스크톱 앱 발송
 - Gmail + Google Apps Script 소량 발송 큐 export
+- 비공개 Google Sheet OAuth 읽기
 - dry-run outbox 파일 생성
 
 ## 빠른 실행
@@ -131,6 +132,12 @@ Google Sheets에서 `integrations/gmail_apps_script_sender.js`를 붙여 넣고 
 
 ```powershell
 python fetch_gmail_results.py --source "https://docs.google.com/spreadsheets/d/<sheet-id>/edit#gid=0" --output outbox\gmail_send_queue.csv
+```
+
+고객 이메일이 들어간 시트는 비공개 Google Sheet로 운영하는 것이 안전합니다. Google OAuth 클라이언트 JSON을 `config\google_oauth_client.json`에 저장한 뒤 웹 화면에서 `Google 연결`을 한 번 완료하고 `비공개 시트 가져오기`를 누릅니다.
+
+```powershell
+python fetch_private_gmail_results.py --source "https://docs.google.com/spreadsheets/d/<sheet-id>/edit#gid=0" --sheet-name GmailQueue --credentials config\google_oauth_client.json --token state\google_sheets_token.json --output outbox\gmail_send_queue.csv
 ```
 
 발송 결과를 로컬 고객 상태에 반영합니다.

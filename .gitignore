@@ -5,6 +5,10 @@ __pycache__/
 .venv/
 venv/
 
+config/google_oauth_client.json
+config/*credentials*.json
+config/*secret*.json
+
 outbox/
 state/
 inbox/

@@ -15,11 +15,17 @@ from automailer.planner import PlanConfig, build_send_queue
 from automailer.word_template import load_word_template_bytes
 from compare_gmail_results import compare_results as compare_gmail_results
 from fetch_gmail_results import fetch_results as fetch_gmail_results
+from fetch_private_gmail_results import (
+    build_authorization_url as build_google_authorization_url,
+    complete_authorization as complete_google_authorization,
+    fetch_private_results as fetch_private_gmail_results,
+)
 from import_gmail_results import import_results as import_gmail_results
 
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_DIR = BASE_DIR / "email_templates"
+GOOGLE_OAUTH_STATE_PATH = "state/google_oauth_state.json"
 
 
 DEFAULTS = {
@@ -32,7 +38,10 @@ DEFAULTS = {
     "queue_output": "outbox/web_dashboard_queue.csv",
     "approval_output": "outbox/web_dashboard_approval.csv",
     "gmail_source": "",
+    "gmail_sheet_name": "GmailQueue",
     "gmail_results": "outbox/gmail_send_queue.csv",
+    "google_credentials": "config/google_oauth_client.json",
+    "google_token": "state/google_sheets_token.json",
     "outbox": "outbox",
 }
 
@@ -85,6 +94,10 @@ def make_handler():
             if parsed.path == "/api/progress":
                 self._json_response(200, {"markdown": _read_text(BASE_DIR / "docs" / "progress.md")})
                 return
+            if parsed.path == "/oauth/google/callback":
+                html_result = _handle_google_oauth_callback(parse_qs(parsed.query))
+                self._html_response(html_result)
+                return
             if parsed.path == "/file":
                 query = parse_qs(parsed.query)
                 path = _safe_path(query.get("path", [""])[0])
@@ -128,8 +141,16 @@ def make_handler():
                     result = _handle_fetch_gmail_results(payload)
                     self._json_response(200, result)
                     return
+                if parsed.path == "/api/gmail/fetch-private":
+                    result = _handle_fetch_private_gmail_results(payload)
+                    self._json_response(200, result)
+                    return
                 if parsed.path == "/api/gmail/compare":
                     result = _handle_compare_gmail_results(payload)
+                    self._json_response(200, result)
+                    return
+                if parsed.path == "/api/google/auth-url":
+                    result = _handle_google_auth_url(payload)
                     self._json_response(200, result)
                     return
                 self._json_response(404, {"ok": False, "error": "not found"})
@@ -432,6 +453,18 @@ def _handle_fetch_gmail_results(payload: dict[str, object]) -> dict[str, object]
     return {"ok": True, "summary": summary}
 
 
+def _handle_fetch_private_gmail_results(payload: dict[str, object]) -> dict[str, object]:
+    config = _request_config(payload)
+    summary = fetch_private_gmail_results(
+        source=config["gmail_source"],
+        output_path=_safe_path(config["gmail_results"]),
+        credentials_path=_safe_path(config["google_credentials"]),
+        token_path=_safe_path(config["google_token"]),
+        sheet_name=config["gmail_sheet_name"],
+    )
+    return {"ok": True, "summary": summary}
+
+
 def _handle_compare_gmail_results(payload: dict[str, object]) -> dict[str, object]:
     config = _request_config(payload)
     result = compare_gmail_results(
@@ -440,6 +473,63 @@ def _handle_compare_gmail_results(payload: dict[str, object]) -> dict[str, objec
         campaign_id=config["campaign_id"],
     )
     return {"ok": True, **result}
+
+
+def _handle_google_auth_url(payload: dict[str, object]) -> dict[str, object]:
+    config = _request_config(payload)
+    redirect_uri = str(payload.get("redirect_uri") or "").strip()
+    if not redirect_uri:
+        raise ValueError("redirect_uri is required.")
+    result = build_google_authorization_url(
+        credentials_path=_safe_path(config["google_credentials"]),
+        token_path=_safe_path(config["google_token"]),
+        state_path=_safe_path(GOOGLE_OAUTH_STATE_PATH),
+        redirect_uri=redirect_uri,
+    )
+    return {"ok": True, **result}
+
+
+def _handle_google_oauth_callback(query: dict[str, list[str]]) -> str:
+    error = query.get("error", [""])[0]
+    if error:
+        return _google_oauth_result_html(False, f"Google 연결 실패: {html.escape(error)}")
+
+    try:
+        code = query.get("code", [""])[0]
+        state = query.get("state", [""])[0]
+        result = complete_google_authorization(
+            state_path=_safe_path(GOOGLE_OAUTH_STATE_PATH),
+            code=code,
+            state=state,
+        )
+        return _google_oauth_result_html(True, f"Google 연결 완료: {html.escape(result['token_path'])}")
+    except Exception as exc:
+        return _google_oauth_result_html(False, html.escape(str(exc)))
+
+
+def _google_oauth_result_html(ok: bool, message: str) -> str:
+    title = "Google 연결 완료" if ok else "Google 연결 실패"
+    return f"""<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{title}</title>
+  <style>
+    body {{ margin: 0; font-family: Arial, "Noto Sans KR", sans-serif; background: #f4f6f8; color: #18212f; }}
+    main {{ width: min(560px, calc(100% - 32px)); margin: 80px auto; padding: 24px; background: #fff; border: 1px solid #d7dde5; border-radius: 8px; }}
+    h1 {{ margin: 0 0 10px; font-size: 22px; }}
+    p {{ line-height: 1.6; color: #617086; }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{title}</h1>
+    <p>{message}</p>
+    <p>이 창을 닫고 자동 메일 발송 화면에서 비공개 시트 가져오기를 누르세요.</p>
+  </main>
+</body>
+</html>"""
 
 
 def _request_config(payload: dict[str, object]) -> dict[str, str]:
@@ -2188,6 +2278,8 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
         <button id="planBtn">받을 사람 확인</button>
         <button id="dryRunBtn" class="primary">메일 미리보기 만들기</button>
         <button id="prepareApprovalBtn">발송 승인 준비</button>
+        <button id="connectGoogleBtn">Google 연결</button>
+        <button id="fetchPrivateGmailBtn">비공개 시트 가져오기</button>
         <button id="fetchGmailBtn">Gmail 시트 가져오기</button>
         <button id="importGmailBtn">Gmail 결과 반영</button>
         <button id="compareGmailBtn">Gmail 결과 확인</button>
@@ -2231,8 +2323,14 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
             <input id="approval_output">
             <label for="gmail_source">Gmail 시트 링크</label>
             <input id="gmail_source">
+            <label for="gmail_sheet_name">Gmail 시트 이름</label>
+            <input id="gmail_sheet_name">
             <label for="gmail_results">Gmail 결과 파일</label>
             <input id="gmail_results">
+            <label for="google_credentials">Google 인증 파일</label>
+            <input id="google_credentials">
+            <label for="google_token">Google 토큰 파일</label>
+            <input id="google_token">
             <label for="timeline">고객별 기록 파일</label>
             <input id="timeline">
           </details>
@@ -2266,7 +2364,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
   </main>
 
   <script>
-    const fields = ["contacts", "funnel_config", "lead_state", "campaign_id", "queue_output", "approval_output", "gmail_source", "gmail_results", "timeline"];
+    const fields = ["contacts", "funnel_config", "lead_state", "campaign_id", "queue_output", "approval_output", "gmail_source", "gmail_sheet_name", "gmail_results", "google_credentials", "google_token", "timeline"];
     const statusLabels = {
       ready: "보낼 예정",
       sent: "미리보기 완료",
@@ -2299,7 +2397,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     }
 
     function busy(value) {
-      for (const id of ["planBtn", "dryRunBtn", "prepareApprovalBtn", "fetchGmailBtn", "importGmailBtn", "compareGmailBtn", "saveFlowBtn", "refreshBtn"]) {
+      for (const id of ["planBtn", "dryRunBtn", "prepareApprovalBtn", "connectGoogleBtn", "fetchPrivateGmailBtn", "fetchGmailBtn", "importGmailBtn", "compareGmailBtn", "saveFlowBtn", "refreshBtn"]) {
         const element = document.getElementById(id);
         if (element) element.disabled = value;
       }
@@ -2527,6 +2625,8 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       const ignored = counts.ignored || 0;
       const summary = `
         <div class="message-tools">
+          <button type="button" id="connectGoogleInTabBtn">Google 연결</button>
+          <button type="button" id="fetchPrivateGmailInTabBtn">비공개 시트 가져오기</button>
           <button type="button" id="fetchGmailInTabBtn">Gmail 시트 가져오기</button>
           <button type="button" class="primary" id="importGmailInTabBtn">Gmail 결과 반영</button>
           <button type="button" id="compareGmailInTabBtn">Gmail 결과 확인</button>
@@ -2553,6 +2653,8 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
           </table>`;
       }
 
+      document.getElementById("connectGoogleInTabBtn").addEventListener("click", connectGoogle);
+      document.getElementById("fetchPrivateGmailInTabBtn").addEventListener("click", fetchPrivateGmailResults);
       document.getElementById("fetchGmailInTabBtn").addEventListener("click", fetchGmailResults);
       document.getElementById("importGmailInTabBtn").addEventListener("click", importGmailResults);
       document.getElementById("compareGmailInTabBtn").addEventListener("click", () => compareGmailResults(true));
@@ -2735,6 +2837,42 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       }
     }
 
+    async function connectGoogle() {
+      busy(true);
+      note("Google 연결 주소를 만드는 중입니다...");
+      try {
+        const data = await api("/api/google/auth-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...formData(), redirect_uri: `${window.location.origin}/oauth/google/callback` })
+        });
+        window.open(data.auth_url, "_blank", "noopener");
+        note("새 창에서 Google 로그인을 완료한 뒤 이 화면으로 돌아오세요.");
+      } catch (error) {
+        note(error.message);
+      } finally {
+        busy(false);
+      }
+    }
+
+    async function fetchPrivateGmailResults() {
+      busy(true);
+      note("비공개 Gmail 시트 결과를 가져오는 중입니다...");
+      try {
+        const data = await api("/api/gmail/fetch-private", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(formData())
+        });
+        note(`비공개 시트 가져오기 완료: ${data.summary.rows}행을 저장했습니다.`);
+        await compareGmailResults(false);
+      } catch (error) {
+        note(error.message);
+      } finally {
+        busy(false);
+      }
+    }
+
     async function fetchGmailResults() {
       busy(true);
       note("Gmail 시트 결과를 가져오는 중입니다...");
@@ -2864,6 +3002,8 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       document.getElementById("planBtn").addEventListener("click", plan);
       document.getElementById("dryRunBtn").addEventListener("click", preview);
       document.getElementById("prepareApprovalBtn").addEventListener("click", prepareApproval);
+      document.getElementById("connectGoogleBtn").addEventListener("click", connectGoogle);
+      document.getElementById("fetchPrivateGmailBtn").addEventListener("click", fetchPrivateGmailResults);
       document.getElementById("fetchGmailBtn").addEventListener("click", fetchGmailResults);
       document.getElementById("importGmailBtn").addEventListener("click", importGmailResults);
       document.getElementById("compareGmailBtn").addEventListener("click", () => compareGmailResults(true));

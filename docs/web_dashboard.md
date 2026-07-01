@@ -70,9 +70,17 @@ outbox/gmail_send_queue.csv
 사용 방식:
 
 - `Gmail 시트 링크`: Google Sheet 주소 또는 CSV export 주소
+- `Google 연결`: 비공개 Google Sheet를 읽기 위한 Google 로그인 연결
+- `비공개 시트 가져오기`: 로그인 권한으로 비공개 Google Sheet를 읽어 결과 파일 저장
 - `Gmail 시트 가져오기`: 시트 결과를 `Gmail 결과 파일`로 저장
 - `Gmail 결과 반영`: 성공/실패 결과를 고객 상태와 고객별 기록에 반영
 - `Gmail 결과 확인`: Gmail 결과와 앱 고객 상태가 맞는지 비교
+
+비공개 Sheet 사용 시 추가 파일:
+
+- Google 인증 파일: `config/google_oauth_client.json`
+- Google 토큰 파일: `state/google_sheets_token.json`
+- Gmail 시트 이름: `GmailQueue`
 
 반영 내용:
 
@@ -89,6 +97,7 @@ outbox/gmail_send_queue.csv
 - 리드 상태: `samples/lead_state_drip.json`
 - 큐 출력: `outbox/web_dashboard_queue.csv`
 - Gmail 결과: `outbox/gmail_send_queue.csv`
+- Google 인증 파일: `config/google_oauth_client.json`
 - 타임라인: `outbox/web_dashboard_timeline.jsonl`
 
 ## 운영 원칙
