@@ -39,7 +39,7 @@ const statusLabels = {
   ready: "보낼 예정",
   scheduled: "기다림",
   skipped: "제외",
-  sent: "미리보기 완료",
+  sent: "발송 완료",
   pending: "대기",
   failed: "실패"
 };
@@ -1311,6 +1311,8 @@ async function importGmail() {
       method: "POST",
       body: JSON.stringify(formData())
     });
+    if (data.rows) state.queueRows = data.rows;
+    if (data.counts) state.queueCounts = data.counts;
     state.activeTab = "gmail";
     await compareGmail(false);
     setNotice(messageFrom(data, `Gmail 결과 반영 완료: 성공 ${data.summary?.imported || 0}건`), "success");

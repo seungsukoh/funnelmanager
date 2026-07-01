@@ -388,7 +388,27 @@ export async function queueRowsFor(env) {
      FROM contacts
      ORDER BY created_at ASC, email ASC`
   ).all();
-  return results;
+  return results.map(effectiveQueueRow);
+}
+
+function effectiveQueueRow(row) {
+  const nextSendAt = String(row.next_send_at || "").slice(0, 10);
+  const today = todayKst();
+  if (nextSendAt && nextSendAt > today) {
+    return {
+      ...row,
+      status: "scheduled",
+      detail: row.detail || `${nextSendAt} 발송 예정`
+    };
+  }
+  if (String(row.status || "") === "scheduled" && nextSendAt && nextSendAt <= today) {
+    return {
+      ...row,
+      status: "ready",
+      detail: "예약일이 되어 보낼 수 있습니다."
+    };
+  }
+  return row;
 }
 
 export async function saveContactRows(env, rows) {
@@ -538,13 +558,22 @@ export async function prepareApprovalRowsFor(env) {
 
   if (!(await ensureDatabase(env))) return rows;
 
+  const existing = await approvalMap(env);
+  await env.DB.prepare("DELETE FROM approvals").run();
   for (const row of rows) {
-    const existing = await env.DB.prepare("SELECT approved FROM approvals WHERE email = ? AND template = ?")
-      .bind(row.email, row.template)
-      .first();
-    await upsertApproval(env, { ...row, approved: existing?.approved || row.approved });
+    const key = approvalKey(row.email, row.template);
+    await upsertApproval(env, { ...row, approved: existing.get(key) || row.approved });
   }
   return approvalRowsFor(env);
+}
+
+async function approvalMap(env) {
+  const { results = [] } = await env.DB.prepare("SELECT email, template, approved FROM approvals").all();
+  return new Map(results.map((row) => [approvalKey(row.email, row.template), row.approved]));
+}
+
+function approvalKey(email, template) {
+  return `${String(email || "").toLowerCase()}|${String(template || "")}`;
 }
 
 export async function approvalRowsFor(env) {
@@ -625,6 +654,146 @@ export async function saveGmailRows(env, rows) {
       .run();
   }
   return gmailRowsFor(env);
+}
+
+export async function applyGmailResultsToContacts(env) {
+  if (!(await ensureDatabase(env))) {
+    return { imported: 0, failed: 0, skipped: 0, scheduled: 0, ready: 0, completed: 0 };
+  }
+
+  const { results = [] } = await env.DB.prepare(
+    `SELECT review_status, email, gmail_status, template, lead_status, detail
+     FROM gmail_results
+     ORDER BY updated_at DESC`
+  ).all();
+  const steps = await flowStepsFor(env);
+  const stepByTemplate = new Map(steps.map((step) => [String(step.template || ""), step]));
+  const stepById = new Map(steps.map((step) => [String(step.id || ""), step]));
+  const summary = { imported: 0, failed: 0, skipped: 0, scheduled: 0, ready: 0, completed: 0 };
+
+  for (const result of results) {
+    const email = String(result.email || "").trim().toLowerCase();
+    const template = String(result.template || "").trim();
+    if (!email || !template) {
+      summary.skipped += 1;
+      continue;
+    }
+
+    const status = String(result.gmail_status || result.review_status || "").toLowerCase();
+    const reviewStatus = String(result.review_status || "").toLowerCase();
+    if (status === "sent" || reviewStatus === "matched") {
+      const contact = await contactFor(env, email, template);
+      if (!contact) {
+        summary.skipped += 1;
+        continue;
+      }
+      const currentStep = stepByTemplate.get(template) || {};
+      const nextStep = currentStep.next_step ? stepById.get(String(currentStep.next_step)) : null;
+      const nextSendAt = nextSendDate(currentStep, result.detail);
+      const nextStatus = nextStep
+        ? nextSendAt && nextSendAt > todayKst()
+          ? "scheduled"
+          : "ready"
+        : "sent";
+      const nextTemplate = nextStep?.template || template;
+      const campaignStep = nextStep?.stage_label || currentStep.status_after || currentStep.stage_label || contact.campaign_step || "";
+      const detail = nextStep
+        ? nextStatus === "scheduled"
+          ? `${nextSendAt}에 다음 메일 예약`
+          : "다음 메일을 보낼 수 있습니다."
+        : "메일 흐름 완료";
+
+      await updateContactAfterGmail(env, {
+        email,
+        currentTemplate: template,
+        template: nextTemplate,
+        status: nextStatus,
+        campaignStep,
+        nextSendAt: nextStep ? nextSendAt : "",
+        detail
+      });
+      await deleteApproval(env, email, template);
+      summary.imported += 1;
+      if (nextStatus === "scheduled") summary.scheduled += 1;
+      else if (nextStatus === "ready") summary.ready += 1;
+      else summary.completed += 1;
+    } else if (status === "failed" || reviewStatus === "needs_review") {
+      const contact = await contactFor(env, email, template);
+      if (!contact) {
+        summary.skipped += 1;
+        continue;
+      }
+      await markContactGmailFailed(env, email, template, result.detail);
+      await deleteApproval(env, email, template);
+      summary.failed += 1;
+    } else {
+      summary.skipped += 1;
+    }
+  }
+
+  return summary;
+}
+
+async function contactFor(env, email, template) {
+  return env.DB.prepare(
+    `SELECT email, template, campaign_step, status, next_send_at, detail
+     FROM contacts
+     WHERE email = ? AND template = ?`
+  )
+    .bind(email, template)
+    .first();
+}
+
+async function updateContactAfterGmail(env, row) {
+  await env.DB.prepare(
+    `UPDATE contacts
+     SET status = ?, template = ?, campaign_step = ?, next_send_at = ?, detail = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE email = ? AND template = ?`
+  )
+    .bind(row.status, row.template, row.campaignStep, row.nextSendAt, row.detail, row.email, row.currentTemplate)
+    .run();
+}
+
+async function markContactGmailFailed(env, email, template, detail) {
+  await env.DB.prepare(
+    `UPDATE contacts
+     SET status = 'ready', next_send_at = '', detail = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE email = ? AND template = ?`
+  )
+    .bind(`Gmail 발송 실패 확인 필요${detail ? `: ${detail}` : ""}`, email, template)
+    .run();
+}
+
+async function deleteApproval(env, email, template) {
+  await env.DB.prepare("DELETE FROM approvals WHERE email = ? AND template = ?").bind(email, template).run();
+}
+
+function nextSendDate(step, sentAt) {
+  if (step.next_send_at) return String(step.next_send_at).slice(0, 10);
+  if (step.next_send_after_days !== undefined && String(step.next_send_after_days).trim() !== "") {
+    return addDaysKst(dateFromMaybe(sentAt), Number(step.next_send_after_days || 0));
+  }
+  return "";
+}
+
+function dateFromMaybe(value) {
+  const text = String(value || "").trim();
+  const date = text ? new Date(text) : new Date();
+  if (Number.isNaN(date.getTime())) return new Date();
+  return date;
+}
+
+function addDaysKst(date, days) {
+  const next = new Date(date.getTime() + Number(days || 0) * 24 * 60 * 60 * 1000);
+  return formatDateKst(next);
+}
+
+function formatDateKst(date) {
+  return new Date(date.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function todayKst() {
+  return formatDateKst(new Date());
 }
 
 export async function logGmailSend(env, row) {
