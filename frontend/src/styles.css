@@ -217,7 +217,7 @@ h3 {
 
 .status-monitor {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
 }
 
@@ -400,6 +400,23 @@ textarea {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 16px;
+}
+
+.inline-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid #bbdfc8;
+  border-radius: 8px;
+  background: #effaf2;
+  color: #166534;
+}
+
+.inline-status span {
+  color: #31513c;
 }
 
 .summary-item {

@@ -375,6 +375,49 @@ export async function queueRowsFor(env) {
   return results;
 }
 
+export async function saveContactRows(env, rows) {
+  const databaseReady = await ensureDatabase(env);
+  const defaultStep = (await flowStepsFor(env))[0] || {};
+  const imported = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const email = String(row.email || "").trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
+    const name = String(row.name || row["이름"] || row["성명"] || "").trim();
+    const template = String(row.template || defaultStep.template || "").trim();
+    const campaignStep = String(row.campaign_step || defaultStep.stage_label || "").trim();
+    const detail = name ? `${name} 고객` : "엑셀/CSV에서 불러온 고객";
+    if (databaseReady) {
+      await env.DB.prepare(
+        `INSERT INTO contacts
+          (email, name, status, template, rule, campaign_step, next_send_at, detail, data_json, updated_at)
+         VALUES (?, ?, 'ready', ?, '업로드 명단', ?, '', ?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(email) DO UPDATE SET
+           name = excluded.name,
+           status = 'ready',
+           template = excluded.template,
+           rule = excluded.rule,
+           campaign_step = excluded.campaign_step,
+           next_send_at = '',
+           detail = excluded.detail,
+           data_json = excluded.data_json,
+           updated_at = CURRENT_TIMESTAMP`
+      )
+        .bind(email, name, template, campaignStep, detail, JSON.stringify(row))
+        .run();
+    }
+    imported.push({
+      status: "ready",
+      email,
+      template,
+      rule: "업로드 명단",
+      campaign_step: campaignStep,
+      next_send_at: "",
+      detail
+    });
+  }
+  return imported;
+}
+
 export async function flowStepsFor(env) {
   if (!(await ensureDatabase(env))) return FLOW_STEPS;
   const { results = [] } = await env.DB.prepare(

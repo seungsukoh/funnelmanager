@@ -1,4 +1,5 @@
 import "./styles.css";
+import readXlsxFile from "read-excel-file/browser";
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
@@ -64,7 +65,8 @@ const state = {
   googleStatusError: "",
   gmailTestResult: null,
   settingsOpen: false,
-  advancedSettingsOpen: false
+  advancedSettingsOpen: false,
+  contactImport: null
 };
 
 function apiUrl(path) {
@@ -160,6 +162,11 @@ function workflowStatus(id) {
   return "";
 }
 
+function contactImportText() {
+  if (!state.contactImport) return "엑셀/CSV를 불러온 뒤 보낼 사람을 선택하세요.";
+  return `${state.contactImport.filename} / ${state.contactImport.imported}건 불러옴`;
+}
+
 function nextStepId() {
   if (!state.queueRows.length) return "people";
   if (!state.flowSteps.length) return "flow";
@@ -241,6 +248,7 @@ function renderStatusMonitor(nextId) {
       ${renderMonitorItem("저장소", database?.done ? "연결됨" : "확인 필요", database?.detail || "D1 상태를 확인하세요.", database?.done ? "ok" : "warn")}
       ${renderMonitorItem("Google", connect?.done ? "연결됨" : secret?.done ? "승인 필요" : "설정 필요", connect?.detail || secret?.detail || "Google 연결 상태를 확인하세요.", connect?.done ? "ok" : "warn")}
       ${renderMonitorItem("테스트 발송", state.gmailTestResult?.sent ? "완료" : gmailSend?.done ? "준비됨" : "대기", state.gmailTestResult?.sent ? `${state.gmailTestResult.recipient} 발송` : gmailSend?.detail || "테스트 발송 전", state.gmailTestResult?.sent || gmailSend?.done ? "ok" : "neutral")}
+      ${renderMonitorItem("불러온 명단", state.queueRows.length ? `${state.queueRows.length}건` : "없음", contactImportText(), state.queueRows.length ? "ok" : "neutral")}
       ${renderMonitorItem("오늘 승인", `${approved}건`, approved ? "승인된 명단이 있습니다." : "발송 승인 전입니다.", approved ? "ok" : "neutral")}
       ${renderMonitorItem("다음 작업", workflowTitle(nextId), workflowStatus(nextId), "focus")}
       ${renderMonitorItem("확인 필요", `${needsReview}건`, needsReview ? "Gmail 결과 확인이 필요합니다." : "처리할 오류가 없습니다.", needsReview ? "warn" : "ok")}
@@ -394,10 +402,21 @@ function renderPeopleTab() {
       <div class="panel-title">
         <div>
           <h2>명단 확인</h2>
-          <p>오늘 보낼 수 있는 사람과 제외된 사람을 구분합니다.</p>
+          <p>엑셀 또는 CSV 명단을 불러오고, 오늘 보낼 수 있는 사람과 제외된 사람을 구분합니다.</p>
         </div>
-        <button class="primary" type="button" data-action="plan">명단 확인</button>
+        <div class="button-row">
+          <label class="file-button">
+            엑셀/CSV 불러오기
+            <input type="file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" data-contacts-file />
+          </label>
+          <button class="primary" type="button" data-action="plan">명단 확인</button>
+        </div>
       </div>
+      ${state.contactImport ? `
+        <div class="inline-status">
+          <strong>최근 명단</strong>
+          <span>${safe(contactImportText())}</span>
+        </div>` : ""}
       <div class="summary-row">
         ${summaryItem("보낼 예정", state.queueCounts.ready || 0)}
         ${summaryItem("기다림", state.queueCounts.scheduled || 0)}
@@ -687,6 +706,10 @@ function bindEvents() {
     input.addEventListener("change", () => importWordTemplate(Number(input.dataset.wordIndex), input.files?.[0]));
   }
 
+  for (const input of document.querySelectorAll("[data-contacts-file]")) {
+    input.addEventListener("change", () => importContactsFile(input.files?.[0], input));
+  }
+
   for (const button of document.querySelectorAll("[data-action]")) {
     button.disabled = state.busy;
     button.addEventListener("click", () => runAction(button.dataset.action));
@@ -929,6 +952,31 @@ async function testGmail() {
   });
 }
 
+async function importContactsFile(file, input) {
+  if (!file) return;
+  await withBusy("명단 파일을 불러오는 중입니다.", async () => {
+    const rows = await rowsFromContactsFile(file);
+    const data = await api("/api/contacts/import", {
+      method: "POST",
+      body: JSON.stringify({ ...formData(), rows })
+    });
+    state.queueRows = data.rows || [];
+    state.queueCounts = data.counts || {};
+    state.approvalRows = [];
+    state.approvalCounts = {};
+    state.previewRows = [];
+    state.previewSummary = null;
+    state.contactImport = {
+      filename: file.name,
+      received: data.summary?.received || rows.length,
+      imported: data.summary?.imported || 0
+    };
+    state.activeTab = "people";
+    setNotice(messageFrom(data, `명단 ${state.contactImport.imported}건을 불러왔습니다.`), "success");
+  });
+  if (input) input.value = "";
+}
+
 async function importGmail() {
   await withBusy("Gmail 결과를 고객 상태에 반영하는 중입니다.", async () => {
     const data = await api("/api/gmail/import", {
@@ -981,6 +1029,91 @@ function fileToBase64(file) {
     reader.onerror = () => reject(new Error("파일을 읽지 못했습니다."));
     reader.readAsDataURL(file);
   });
+}
+
+async function rowsFromContactsFile(file) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".xlsx")) {
+    return objectsFromTable(await readXlsxFile(file));
+  }
+  if (name.endsWith(".csv")) {
+    return objectsFromTable(parseCsv(await file.text()));
+  }
+  throw new Error("엑셀 .xlsx 또는 CSV 파일만 불러올 수 있습니다.");
+}
+
+function objectsFromTable(table) {
+  const rows = table
+    .map((row) => row.map((value) => String(value ?? "").trim()))
+    .filter((row) => row.some(Boolean));
+  if (rows.length < 2) throw new Error("명단 파일에 제목 행과 고객 행이 필요합니다.");
+
+  const headers = rows[0].map((header) => header.trim());
+  const emailIndex = detectHeaderIndex(headers, ["email", "e-mail", "email address", "mail", "메일", "메일주소", "이메일", "이메일주소", "전자메일"]);
+  if (emailIndex < 0) throw new Error("이메일 열을 찾지 못했습니다. 열 이름을 email 또는 이메일로 입력하세요.");
+
+  const nameIndex = detectHeaderIndex(headers, ["name", "full name", "username", "이름", "성명", "고객명", "참가자명"]);
+  const objects = [];
+  for (const row of rows.slice(1)) {
+    const email = String(row[emailIndex] || "").trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
+    const object = { email };
+    if (nameIndex >= 0) object.name = String(row[nameIndex] || "").trim();
+    headers.forEach((header, index) => {
+      if (header) object[header] = String(row[index] || "").trim();
+    });
+    objects.push(object);
+  }
+  if (!objects.length) throw new Error("유효한 이메일 주소가 없습니다.");
+  return objects;
+}
+
+function detectHeaderIndex(headers, candidates) {
+  const normalized = headers.map(normalizeHeader);
+  return candidates.map(normalizeHeader).reduce((found, candidate) => {
+    if (found >= 0) return found;
+    return normalized.indexOf(candidate);
+  }, -1);
+}
+
+function normalizeHeader(value) {
+  return String(value || "").toLowerCase().replace(/[\s_-]+/g, "");
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+    if (quoted) {
+      if (char === '"' && next === '"') {
+        cell += '"';
+        index += 1;
+      } else if (char === '"') {
+        quoted = false;
+      } else {
+        cell += char;
+      }
+    } else if (char === '"') {
+      quoted = true;
+    } else if (char === ",") {
+      row.push(cell);
+      cell = "";
+    } else if (char === "\n") {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else if (char !== "\r") {
+      cell += char;
+    }
+  }
+  row.push(cell);
+  rows.push(row);
+  return rows;
 }
 
 async function refreshAll() {
