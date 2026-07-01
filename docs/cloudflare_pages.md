@@ -37,6 +37,21 @@ Cloudflare Dashboard에서 설정한다.
 
 이후 `main`에 푸시하면 Cloudflare Pages가 자동으로 새 버전을 배포한다.
 
+## 루트 디렉터리로 빌드하는 경우
+
+Cloudflare가 `/opt/buildhome/repo/package.json`을 찾는 오류를 내면 Root directory가 `frontend`로 적용되지 않은 상태다.
+이 경우에도 배포가 가능하도록 저장소 루트에 빌드 스크립트를 둔다.
+
+Cloudflare 설정을 다음처럼 바꾼다.
+
+| 항목 | 값 |
+| --- | --- |
+| Root directory | 비워 둠 |
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+
+루트 빌드는 내부적으로 `frontend` 의존성을 설치하고 Vite 결과물을 루트 `dist/`에 만든다.
+
 ## 환경 변수
 
 나중에 백엔드 API가 클라우드에 올라가면 Cloudflare Pages 환경 변수에 추가한다.

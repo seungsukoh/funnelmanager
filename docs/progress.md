@@ -97,6 +97,7 @@
 - Google OAuth 범위를 Sheets 읽기/쓰기 권한으로 확장
 - Cloudflare Pages 자동 배포용 Vite 프론트엔드 구조 추가: `frontend/`
 - Cloudflare Pages 연결 가이드 작성: `docs/cloudflare_pages.md`
+- Cloudflare Pages 루트 빌드 오류 대응: 루트 `package.json`에서 `frontend` 빌드 후 `dist/` 생성 지원
 
 ### 진행 중
 
