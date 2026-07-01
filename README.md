@@ -19,6 +19,7 @@
 - SendGrid/Postmark API 또는 Outlook 데스크톱 앱 발송
 - Gmail + Google Apps Script 소량 발송 큐 export
 - 비공개 Google Sheet OAuth 읽기
+- Cloudflare Pages용 Vite 프론트엔드 배포 준비
 - dry-run outbox 파일 생성
 
 ## 빠른 실행
@@ -103,6 +104,21 @@ http://127.0.0.1:8765
 ```
 
 자세한 내용은 `docs/web_dashboard.md`를 참고하세요.
+
+## Cloudflare Pages 자동 배포
+
+`frontend/`에는 Cloudflare Pages에 올릴 Vite 프론트엔드가 들어 있습니다.
+Cloudflare Pages에서 GitHub 저장소를 연결하고 production branch를 `main`으로 설정하면, `main`에 푸시할 때마다 자동으로 새 화면이 배포됩니다.
+
+Cloudflare Pages 설정:
+
+- Root directory: `frontend`
+- Build command: `npm ci && npm run build`
+- Build output directory: `dist`
+- Node version: `22`
+
+현재 Python API와 파일 저장 기능은 로컬 서버인 `web_app.py`에서 실행됩니다. Cloudflare에서 실제 발송 기능까지 쓰려면 다음 단계에서 API를 Cloudflare Worker/D1/R2 또는 별도 Python 서버로 분리해야 합니다.
+자세한 내용은 `docs/cloudflare_pages.md`를 참고하세요.
 
 ## 예약 실행과 발송 승인
 

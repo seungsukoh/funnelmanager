@@ -95,6 +95,8 @@
 - 웹 화면에 승인된 고객 기준 `Gmail 발송 준비` 버튼/API 추가
 - 비공개 Google Sheet 업로드 CLI/API/버튼 추가: `upload_private_gmail_queue.py`
 - Google OAuth 범위를 Sheets 읽기/쓰기 권한으로 확장
+- Cloudflare Pages 자동 배포용 Vite 프론트엔드 구조 추가: `frontend/`
+- Cloudflare Pages 연결 가이드 작성: `docs/cloudflare_pages.md`
 
 ### 진행 중
 
@@ -103,9 +105,12 @@
 - Windows 작업 스케줄러 연결 절차 검증 준비
 - 비공개 Gmail Sheet OAuth를 실제 운영 Google 계정으로 검증 준비
 - 쉬운 운영 흐름 기준으로 사용자 테스트 준비
+- Cloudflare 배포 후 사용할 백엔드 구조 검토
 
 ### 다음 작업
 
+- Cloudflare Pages에서 GitHub 저장소 연결 및 production branch `main` 배포 확인
+- Python 로컬 API를 Cloudflare Worker/D1/R2 또는 별도 Python 서버로 분리할지 결정
 - Outlook 실제 발송은 사용자 테스트 주소와 Outlook 로그인 상태 확인 후 진행
 - 실제 provider 발송 후 lead_state 업데이트 검증
 - 데이터 소스/필드 매핑 화면 추가

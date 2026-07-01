@@ -4,6 +4,7 @@ __pycache__/
 .env
 .venv/
 venv/
+node_modules/
 
 config/google_oauth_client.json
 config/*credentials*.json
@@ -15,6 +16,7 @@ inbox/
 
 *.sqlite3
 *.sqlite3-journal
+frontend/dist/
 
 .DS_Store
 Thumbs.db
