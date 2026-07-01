@@ -115,7 +115,7 @@ Cloudflare Pages 설정:
 - Root directory: `frontend`
 - Build command: `npm ci && npm run build`
 - Build output directory: `dist`
-- Node version: `22`
+- Node version: `18` 이상
 
 현재 Python API와 파일 저장 기능은 로컬 서버인 `web_app.py`에서 실행됩니다. Cloudflare에서 실제 발송 기능까지 쓰려면 다음 단계에서 API를 Cloudflare Worker/D1/R2 또는 별도 Python 서버로 분리해야 합니다.
 자세한 내용은 `docs/cloudflare_pages.md`를 참고하세요.

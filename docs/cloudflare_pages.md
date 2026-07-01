@@ -33,7 +33,7 @@ Cloudflare Dashboard에서 설정한다.
 
 | 이름 | 값 |
 | --- | --- |
-| `NODE_VERSION` | `22` |
+| `NODE_VERSION` | `18` 또는 `20` |
 
 이후 `main`에 푸시하면 Cloudflare Pages가 자동으로 새 버전을 배포한다.
 
