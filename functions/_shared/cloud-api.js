@@ -190,6 +190,17 @@ CREATE TABLE IF NOT EXISTS gmail_results (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (email, template)
 );
+
+CREATE TABLE IF NOT EXISTS gmail_send_logs (
+  id TEXT PRIMARY KEY,
+  recipient TEXT NOT NULL,
+  subject TEXT NOT NULL DEFAULT '',
+  mode TEXT NOT NULL DEFAULT 'test',
+  status TEXT NOT NULL DEFAULT 'pending',
+  message_id TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `;
 
 export function hasDatabase(env) {
@@ -548,6 +559,26 @@ export async function saveGmailRows(env, rows) {
       .run();
   }
   return gmailRowsFor(env);
+}
+
+export async function logGmailSend(env, row) {
+  if (!(await ensureDatabase(env))) return false;
+  await env.DB.prepare(
+    `INSERT INTO gmail_send_logs
+      (id, recipient, subject, mode, status, message_id, error, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+  )
+    .bind(
+      String(row.id || crypto.randomUUID()),
+      String(row.recipient || ""),
+      String(row.subject || ""),
+      String(row.mode || "test"),
+      String(row.status || "pending"),
+      String(row.message_id || ""),
+      String(row.error || "")
+    )
+    .run();
+  return true;
 }
 
 export function countApproval(rows) {

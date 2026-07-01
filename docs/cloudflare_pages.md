@@ -124,9 +124,19 @@ Cloudflare Pages 프로젝트 설정에서 Secret을 추가한다.
 
 ```text
 https://www.googleapis.com/auth/spreadsheets
+https://www.googleapis.com/auth/gmail.send
 ```
 
 토큰은 D1의 `app_meta` 테이블에 저장된다. Cloudflare Secret에는 Google OAuth client 정보만 저장한다.
+
+Gmail API 직접 발송은 안전하게 `테스트 발송`부터 시작한다.
+
+1. `테스트 수신자`에 본인 이메일을 입력한다.
+2. `Google 상태`에서 D1, OAuth Secret, Google 연결이 준비됐는지 확인한다.
+3. `테스트 발송`을 누른다.
+4. 받은 편지함에서 테스트 메일을 확인한다.
+
+현재 직접 발송은 테스트 수신자 1명만 허용한다. 승인 명단 전체 발송은 별도 잠금장치와 재확인 화면을 붙인 뒤 활성화한다.
 
 ## 환경 변수
 

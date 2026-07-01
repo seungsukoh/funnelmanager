@@ -56,3 +56,14 @@ CREATE TABLE IF NOT EXISTS gmail_results (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (email, template)
 );
+
+CREATE TABLE IF NOT EXISTS gmail_send_logs (
+  id TEXT PRIMARY KEY,
+  recipient TEXT NOT NULL,
+  subject TEXT NOT NULL DEFAULT '',
+  mode TEXT NOT NULL DEFAULT 'test',
+  status TEXT NOT NULL DEFAULT 'pending',
+  message_id TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

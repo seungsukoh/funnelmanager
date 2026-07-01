@@ -30,13 +30,27 @@ export async function onRequestPost({ request, env }) {
         id: "connect",
         label: "Google 연결",
         done: setup.tokenValid,
-        detail: setup.tokenValid ? "Google 연결 토큰이 D1에 저장됐습니다." : "Google 연결을 눌러 권한을 승인하세요."
+        detail: setup.tokenValid
+          ? "Google Sheets/Gmail 발송 권한 토큰이 D1에 저장됐습니다."
+          : !setup.hasToken
+            ? "Google 연결을 눌러 권한을 승인하세요."
+            : setup.tokenHasRequiredScopes
+              ? "Google 연결을 눌러 권한을 다시 승인하세요."
+              : "기존 Google 연결에 Gmail 발송 권한이 없습니다. Google 연결을 다시 실행하세요."
+      },
+      {
+        id: "gmail_send",
+        label: "Gmail 테스트 발송",
+        done: setup.sendReady,
+        detail: setup.sendReady ? "테스트 수신자 1명에게 Gmail API 발송을 실행할 수 있습니다." : "Gmail 발송 권한까지 승인하면 테스트 발송을 실행할 수 있습니다."
       },
       {
         id: "fetch",
-        label: "결과 가져오기 준비",
+        label: "Sheet 실행 준비",
         done: setup.ready,
-        detail: setup.ready ? "비공개 시트 업로드/가져오기를 실행할 수 있습니다." : "위 항목을 완료하면 실제 Google Sheet 연동이 가능합니다."
+        detail: setup.ready
+          ? "비공개 시트 업로드/가져오기를 실행할 수 있습니다."
+          : "Gmail 시트 링크까지 입력하면 실제 Google Sheet 연동이 가능합니다."
       }
     ],
     message: setup.ready ? "Google Sheet 연동 준비가 완료됐습니다." : "Google Sheet 연동 준비 상태를 확인했습니다."

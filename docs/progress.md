@@ -103,6 +103,8 @@
 - Cloudflare Pages Functions 미리보기 백엔드 추가: 명단/메일 흐름/승인/미리보기/Gmail 결과 샘플 API 제공
 - Cloudflare D1 저장소 지원 추가: D1 바인딩 `DB`가 있으면 메일 흐름/승인/Gmail 결과 저장
 - Cloudflare Google OAuth/Sheets Functions 추가: OAuth URL 생성, 콜백 토큰 저장, Sheet 업로드/가져오기 기반 구현
+- Cloudflare Gmail API 테스트 발송 추가: 테스트 수신자 1명만 허용, 발송 로그 D1 저장
+- Gmail API 테스트 발송 검증: JS/Python 문법 검사, Vite 빌드, OAuth 권한 URL, 준비 전 무발송 응답, frontend audit 통과
 
 ### 진행 중
 
@@ -114,9 +116,12 @@
 - Cloudflare 배포 후 사용할 백엔드 구조 검토
 - Cloudflare Functions 미리보기 백엔드에서 실제 D1/R2/Google OAuth 백엔드로 전환 설계
 - Cloudflare Google OAuth Secret과 실제 Google Sheet 운영 계정 검증 준비
+- Gmail API 직접 발송은 테스트 발송 검증 단계로 제한
 
 ### 다음 작업
 
+- 테스트 수신자 본인 이메일로 Gmail API 직접 발송 검증
+- 승인 명단 전체 발송 전 이중 확인/일일 제한/중복 방지 잠금장치 설계
 - Cloudflare Pages에 `GOOGLE_OAUTH_CLIENT` Secret 추가 후 Google 연결 검증
 - 운영 Google Sheet URL로 `비공개 시트에 올리기`와 `결과 가져오기` 실제 테스트
 - Cloudflare Pages 프로젝트에 D1 바인딩 `DB` 연결 후 저장 동작 확인

@@ -12,6 +12,7 @@ const configFields = [
   "gmail_source",
   "gmail_sheet_name",
   "gmail_results",
+  "test_email",
   "google_credentials",
   "google_token",
   "timeline"
@@ -27,6 +28,7 @@ const fallbackDefaults = {
   gmail_source: "",
   gmail_sheet_name: "GmailQueue",
   gmail_results: "outbox/gmail_send_queue.csv",
+  test_email: "",
   google_credentials: "config/google_oauth_client.json",
   google_token: "state/google_sheets_token.json",
   timeline: "outbox/web_dashboard_timeline.jsonl"
@@ -274,6 +276,7 @@ function renderConfigFields() {
     ["gmail_source", "Gmail 시트 링크"],
     ["gmail_sheet_name", "Gmail 시트 이름"],
     ["gmail_results", "Gmail 준비/결과 파일"],
+    ["test_email", "테스트 수신자"],
     ["google_credentials", "Google 인증 파일"],
     ["google_token", "Google 토큰 파일"],
     ["timeline", "고객별 기록 파일"]
@@ -459,6 +462,7 @@ function renderGmailTab() {
         <button type="button" data-action="export-gmail">Gmail 발송 준비</button>
         <button type="button" data-action="upload-gmail">비공개 시트에 올리기</button>
         <button type="button" data-action="fetch-private-gmail">결과 가져오기</button>
+        <button type="button" data-action="test-gmail">테스트 발송</button>
         <button class="primary" type="button" data-action="import-gmail">결과 반영</button>
         <button type="button" data-action="compare-gmail">결과 확인</button>
       </div>
@@ -589,6 +593,7 @@ async function runAction(action) {
     "export-gmail": exportGmail,
     "upload-gmail": uploadGmail,
     "fetch-private-gmail": fetchPrivateGmail,
+    "test-gmail": testGmail,
     "import-gmail": importGmail,
     "compare-gmail": compareGmail
   };
@@ -749,6 +754,20 @@ async function fetchPrivateGmail() {
     });
     state.activeTab = "gmail";
     setNotice(messageFrom(data, `Gmail 결과 가져오기 완료: ${data.summary?.rows || 0}건`), "success");
+  });
+}
+
+async function testGmail() {
+  await withBusy("테스트 메일을 발송하는 중입니다.", async () => {
+    const data = await api("/api/gmail/test-send", {
+      method: "POST",
+      body: JSON.stringify(formData())
+    });
+    state.activeTab = "gmail";
+    setNotice(
+      messageFrom(data, `테스트 메일 발송 완료: ${data.summary?.recipient || ""}`),
+      data.summary?.sent ? "success" : "info"
+    );
   });
 }
 

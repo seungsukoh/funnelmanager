@@ -1,6 +1,9 @@
-import { approvalRowsFor, flowStepsFor, getMetaJson, hasDatabase, saveGmailRows, setMetaJson } from "./cloud-api.js";
+import { approvalRowsFor, flowStepsFor, getMetaJson, hasDatabase, logGmailSend, saveGmailRows, setMetaJson } from "./cloud-api.js";
 
 export const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+export const GOOGLE_SCOPES = [SHEETS_SCOPE, GMAIL_SEND_SCOPE];
+export const GOOGLE_SCOPE_TEXT = GOOGLE_SCOPES.join(" ");
 const TOKEN_KEY = "google_sheets_token";
 const OAUTH_STATE_KEY = "google_oauth_state";
 
@@ -39,17 +42,28 @@ export async function googleSetup(env, source = "") {
   const hasDb = hasDatabase(env);
   const client = googleClient(env);
   const token = hasDb ? await getStoredToken(env) : null;
-  const tokenValid = Boolean(token?.refresh_token);
+  const hasToken = Boolean(token?.refresh_token || token?.access_token);
+  const tokenScope = String(token?.scope || "");
+  const tokenHasRequiredScopes = hasRequiredScopes(tokenScope);
+  const tokenValid = Boolean(token?.refresh_token) && tokenHasRequiredScopes;
   const sheetReady = Boolean(String(source || "").trim());
 
   return {
     hasDb,
     hasClient: Boolean(client),
+    hasToken,
     tokenValid,
+    tokenHasRequiredScopes,
     sheetReady,
     ready: hasDb && Boolean(client) && tokenValid && sheetReady,
-    tokenScope: token?.scope || ""
+    sendReady: hasDb && Boolean(client) && tokenValid,
+    tokenScope
   };
+}
+
+function hasRequiredScopes(scopeText) {
+  const scopes = new Set(String(scopeText || "").split(/\s+/).filter(Boolean));
+  return GOOGLE_SCOPES.every((scope) => scopes.has(scope));
 }
 
 export async function buildAuthorization(env, redirectUri) {
@@ -72,7 +86,7 @@ export async function buildAuthorization(env, redirectUri) {
     client_id: client.client_id,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: SHEETS_SCOPE,
+    scope: GOOGLE_SCOPE_TEXT,
     access_type: "offline",
     prompt: "consent",
     include_granted_scopes: "true",
@@ -114,6 +128,9 @@ export async function accessToken(env) {
   if (!token?.refresh_token && !token?.access_token) {
     throw new Error("Google 연결 토큰이 없습니다. 먼저 Google 연결을 완료하세요.");
   }
+  if (!hasRequiredScopes(token.scope || "")) {
+    throw new Error("Google Sheets/Gmail 발송 권한이 부족합니다. Google 연결을 다시 실행하세요.");
+  }
 
   if (token.access_token && Number(token.expires_at || 0) > Date.now() + 60_000) {
     return token.access_token;
@@ -142,7 +159,7 @@ async function storeToken(env, token) {
   const expiresAt = Date.now() + Number(token.expires_in || 3600) * 1000;
   await setMetaJson(env, TOKEN_KEY, {
     ...token,
-    scope: token.scope || SHEETS_SCOPE,
+    scope: token.scope || GOOGLE_SCOPE_TEXT,
     expires_at: expiresAt,
     saved_at: new Date().toISOString()
   });
@@ -274,6 +291,101 @@ export async function fetchSheetResults(env, { source, sheetName = "GmailQueue" 
     spreadsheet_id: spreadsheetId,
     sheet_name: sheetName
   };
+}
+
+export async function sendTestEmail(env, { to, subject, textBody }) {
+  const recipient = normalizeEmail(to);
+  const safeSubject = sanitizeHeader(subject || "[테스트] Funnel Manager Gmail API 연결 확인");
+  const safeBody =
+    textBody ||
+    "Funnel Manager Gmail API 테스트 메일입니다.\n\n이 메일은 테스트 수신자 1명에게만 발송됐습니다.\n승인 명단 전체 발송 기능은 아직 열려 있지 않습니다.";
+
+  try {
+    const token = await accessToken(env);
+    const raw = base64UrlEncode(
+      [
+        `To: ${recipient}`,
+        `Subject: ${encodeSubject(safeSubject)}`,
+        "MIME-Version: 1.0",
+        "Content-Type: text/plain; charset=UTF-8",
+        "Content-Transfer-Encoding: 8bit",
+        "",
+        safeBody
+      ].join("\r\n")
+    );
+    const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+        "Content-Type": "application/json; charset=utf-8"
+      },
+      body: JSON.stringify({ raw })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error?.message || `Gmail API ${response.status}`);
+    }
+    const logError = await safeLogGmailSend(env, {
+      recipient,
+      subject: safeSubject,
+      mode: "test",
+      status: "sent",
+      message_id: payload.id || ""
+    });
+    return {
+      sent: true,
+      recipient,
+      subject: safeSubject,
+      message_id: payload.id || "",
+      log_error: logError
+    };
+  } catch (error) {
+    await safeLogGmailSend(env, {
+      recipient,
+      subject: safeSubject,
+      mode: "test",
+      status: "failed",
+      error: error.message || "Gmail test send failed"
+    });
+    throw error;
+  }
+}
+
+async function safeLogGmailSend(env, row) {
+  try {
+    await logGmailSend(env, row);
+    return "";
+  } catch (error) {
+    return error.message || "Gmail 발송 로그를 저장하지 못했습니다.";
+  }
+}
+
+function normalizeEmail(value) {
+  const email = String(value || "").trim();
+  if (!email || /[\r\n]/.test(email) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("테스트 수신자 이메일을 정확히 입력하세요.");
+  }
+  return email;
+}
+
+function sanitizeHeader(value) {
+  return String(value || "").replace(/[\r\n]+/g, " ").trim();
+}
+
+function encodeSubject(value) {
+  return `=?UTF-8?B?${base64EncodeUtf8(value)}?=`;
+}
+
+function base64EncodeUtf8(value) {
+  const bytes = new TextEncoder().encode(String(value || ""));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function base64UrlEncode(value) {
+  return base64EncodeUtf8(value).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
 }
 
 function valuesToObjects(values) {
