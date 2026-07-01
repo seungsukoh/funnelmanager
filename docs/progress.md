@@ -75,12 +75,17 @@
 - 예약 실행 CLI 추가: `run_due_campaign.py`
 - 예약 실행 smoke test 통과: ready 1건, scheduled 1건, skipped 2건 승인 파일 생성
 - 승인된 대상만 dry-run 처리 smoke test 통과: 승인 1건 처리, 발송 미리보기 1건, 실패 0건
+- Gmail + Apps Script 소량 발송 방향 확정: 개인 Gmail 하루 100명 이하 운영 기준
+- Gmail 발송용 큐 export CLI 추가: `export_gmail_queue.py`
+- Gmail Apps Script 발송 스크립트 추가: `integrations/gmail_apps_script_sender.js`
+- Gmail 운영 가이드 작성: `docs/gmail_apps_script.md`
 
 ### 진행 중
 
 - Outlook display 모드 사용자 테스트 준비
 - 실제 provider 발송 후 lead_state 업데이트 검증 준비
 - Windows 작업 스케줄러 연결 절차 검증 준비
+- Gmail 발송 결과를 로컬 고객 상태로 다시 가져오는 절차 설계
 
 ### 다음 작업
 
@@ -90,6 +95,7 @@
 - Word 본문 변환에서 표/서식 보존 범위 사용자 검증
 - 웹 화면에서 테스트 수신자 입력 후 승인 대상만 Outlook display로 여는 기능 추가
 - Windows 작업 스케줄러 등록/해제 스크립트 추가
+- Gmail Sheet 발송 결과를 `lead_state`와 `timeline`에 반영하는 import 기능 추가
 
 ### 리스크
 

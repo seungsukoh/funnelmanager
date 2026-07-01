@@ -17,6 +17,7 @@
 - 수신거부 목록 제외
 - JSONL 발송 이력 기반 중복 발송 방지
 - SendGrid/Postmark API 또는 Outlook 데스크톱 앱 발송
+- Gmail + Google Apps Script 소량 발송 큐 export
 - dry-run outbox 파일 생성
 
 ## 빠른 실행
@@ -115,6 +116,18 @@ python run_due_campaign.py --contacts samples\funnel_contacts.csv --funnel-confi
 ```powershell
 python run_due_campaign.py --contacts samples\funnel_contacts.csv --funnel-config samples\drip_config.json --lead-state-path samples\lead_state_drip.json --campaign-id due-demo --send-approved
 ```
+
+## Gmail + Apps Script 발송
+
+하루 100명 이하 소량 발송은 Gmail + Apps Script로 시작할 수 있습니다. 승인된 고객만 Google Sheets에 올릴 CSV로 내보냅니다.
+
+```powershell
+python export_gmail_queue.py --contacts samples\funnel_contacts.csv --funnel-config samples\drip_config.json --lead-state-path samples\lead_state_drip.json --campaign-id gmail-demo --approval-path outbox\web_dashboard_approval.csv --output outbox\gmail_send_queue.csv
+```
+
+Google Sheets에서 `integrations/gmail_apps_script_sender.js`를 붙여 넣고 `sendApprovedEmails`를 실행합니다.
+
+자세한 절차는 `docs/gmail_apps_script.md`를 참고하세요.
 
 ## 폼 응답 webhook 수신
 

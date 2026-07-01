@@ -145,3 +145,17 @@ python run_due_campaign.py --contacts inbox\form_responses.csv --funnel-config s
 ```powershell
 python C:\workspace\projects\automailing\run_due_campaign.py --contacts C:\workspace\projects\automailing\inbox\form_responses.csv --funnel-config C:\workspace\projects\automailing\samples\drip_config.json --lead-state-path C:\workspace\projects\automailing\state\lead_state.json --campaign-id drip-daily --queue-output C:\workspace\projects\automailing\outbox\due_queue.csv --approval-output C:\workspace\projects\automailing\outbox\due_approval.csv
 ```
+
+## 10. Gmail + Apps Script 소량 발송
+
+Gmail 개인 계정으로 하루 100명 이하를 보낼 때는 전용 ESP 없이 Google Sheets와 Apps Script를 사용한다.
+
+먼저 웹 화면에서 `발송 승인 준비`를 실행하고 보낼 고객만 승인한다. 이후 Gmail 발송용 CSV를 만든다.
+
+```powershell
+python export_gmail_queue.py --contacts inbox\form_responses.csv --funnel-config samples\drip_config.json --lead-state-path state\lead_state.json --campaign-id gmail-daily --approval-path outbox\web_dashboard_approval.csv --output outbox\gmail_send_queue.csv
+```
+
+Google Sheets에 `outbox\gmail_send_queue.csv`를 가져온 뒤 Apps Script에 `integrations/gmail_apps_script_sender.js`를 붙여 넣고 `sendApprovedEmails`를 실행한다.
+
+자세한 절차는 `docs/gmail_apps_script.md`를 따른다.
