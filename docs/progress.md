@@ -102,6 +102,7 @@
 - Vite 화면에서 명단 확인/단계별 메일/발송 승인/미리보기/Gmail 결과 탭과 Python API 호출 연결
 - Cloudflare Pages Functions 미리보기 백엔드 추가: 명단/메일 흐름/승인/미리보기/Gmail 결과 샘플 API 제공
 - Cloudflare D1 저장소 지원 추가: D1 바인딩 `DB`가 있으면 메일 흐름/승인/Gmail 결과 저장
+- Cloudflare Google OAuth/Sheets Functions 추가: OAuth URL 생성, 콜백 토큰 저장, Sheet 업로드/가져오기 기반 구현
 
 ### 진행 중
 
@@ -112,9 +113,12 @@
 - 쉬운 운영 흐름 기준으로 사용자 테스트 준비
 - Cloudflare 배포 후 사용할 백엔드 구조 검토
 - Cloudflare Functions 미리보기 백엔드에서 실제 D1/R2/Google OAuth 백엔드로 전환 설계
+- Cloudflare Google OAuth Secret과 실제 Google Sheet 운영 계정 검증 준비
 
 ### 다음 작업
 
+- Cloudflare Pages에 `GOOGLE_OAUTH_CLIENT` Secret 추가 후 Google 연결 검증
+- 운영 Google Sheet URL로 `비공개 시트에 올리기`와 `결과 가져오기` 실제 테스트
 - Cloudflare Pages 프로젝트에 D1 바인딩 `DB` 연결 후 저장 동작 확인
 - Cloudflare Pages 재배포 후 실제 퍼널 메일 운영 화면 표시 확인
 - Vite 화면의 버튼 동작을 클라우드 백엔드에서 실행할 API 구조 결정

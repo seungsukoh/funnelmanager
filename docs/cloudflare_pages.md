@@ -82,6 +82,52 @@ npx wrangler d1 execute funnelmanager --remote --file migrations/0001_core.sql
 
 D1이 연결되면 화면 상단 상태가 `백엔드 연결됨`으로 바뀌고, 메일 흐름 저장/승인 저장 같은 변경사항이 D1에 남는다.
 
+## Google OAuth와 비공개 Sheet 연결
+
+Google Sheet 업로드/가져오기를 Cloudflare에서 실행하려면 D1과 Google OAuth Secret이 모두 필요하다.
+
+Google Cloud Console에서 OAuth Client를 만든다.
+
+1. Google Cloud Console > APIs & Services > Credentials로 이동한다.
+2. OAuth Client ID를 만든다.
+3. Application type은 Web application으로 선택한다.
+4. Authorized redirect URI에 Cloudflare Pages URL을 넣는다.
+
+```text
+https://<cloudflare-pages-domain>/oauth/google/callback
+```
+
+Cloudflare Pages 프로젝트 설정에서 Secret을 추가한다.
+
+권장 방식:
+
+| 이름 | 값 |
+| --- | --- |
+| `GOOGLE_OAUTH_CLIENT` | Google에서 받은 OAuth Client JSON 전체 |
+
+대체 방식:
+
+| 이름 | 값 |
+| --- | --- |
+| `GOOGLE_CLIENT_ID` | OAuth client id |
+| `GOOGLE_CLIENT_SECRET` | OAuth client secret |
+
+설정 후 Pages를 다시 배포한다. 앱 화면에서 다음 순서로 진행한다.
+
+1. `Gmail 시트 링크`에 운영 Google Sheet URL을 입력한다.
+2. `Google 연결`을 누른다.
+3. Google 권한 승인 화면에서 승인한다.
+4. 앱으로 돌아와 `Google 상태`를 누른다.
+5. `비공개 시트에 올리기` 또는 `결과 가져오기`를 실행한다.
+
+권한 범위는 Google Sheets 읽기/쓰기이다.
+
+```text
+https://www.googleapis.com/auth/spreadsheets
+```
+
+토큰은 D1의 `app_meta` 테이블에 저장된다. Cloudflare Secret에는 Google OAuth client 정보만 저장한다.
+
 ## 환경 변수
 
 나중에 백엔드 API가 클라우드에 올라가면 Cloudflare Pages 환경 변수에 추가한다.

@@ -202,7 +202,7 @@ export function cloudMode(env) {
 
 export function cloudNotice(env) {
   return hasDatabase(env)
-    ? "Cloudflare D1 저장소가 연결됐습니다. 실제 Gmail/OAuth 발송은 다음 단계에서 활성화됩니다."
+    ? "Cloudflare D1 저장소가 연결됐습니다. Google OAuth Secret을 설정하면 비공개 Google Sheet 연동을 실행할 수 있습니다."
     : CLOUD_NOTICE;
 }
 
@@ -228,6 +228,16 @@ export function json(payload = {}, status = 200, env = undefined) {
   );
 }
 
+export function html(markup, status = 200) {
+  return new Response(markup, {
+    status,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store"
+    }
+  });
+}
+
 export async function ensureDatabase(env) {
   if (!hasDatabase(env)) return false;
   if (typeof env.DB.exec === "function") {
@@ -239,6 +249,40 @@ export async function ensureDatabase(env) {
   }
   await seedDatabase(env);
   return true;
+}
+
+export async function getMeta(env, key) {
+  if (!(await ensureDatabase(env))) return null;
+  const row = await env.DB.prepare("SELECT value FROM app_meta WHERE key = ?").bind(key).first();
+  return row?.value ?? null;
+}
+
+export async function setMeta(env, key, value) {
+  if (!(await ensureDatabase(env))) return false;
+  await env.DB.prepare(
+    `INSERT INTO app_meta (key, value, updated_at)
+     VALUES (?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(key) DO UPDATE SET
+       value = excluded.value,
+       updated_at = CURRENT_TIMESTAMP`
+  )
+    .bind(key, value)
+    .run();
+  return true;
+}
+
+export async function getMetaJson(env, key) {
+  const value = await getMeta(env, key);
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+export async function setMetaJson(env, key, value) {
+  return setMeta(env, key, JSON.stringify(value));
 }
 
 async function seedDatabase(env) {

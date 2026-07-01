@@ -1,35 +1,44 @@
-import { json } from "../../_shared/cloud-api.js";
+import { json, readBody } from "../../_shared/cloud-api.js";
+import { googleSetup } from "../../_shared/google.js";
 
-export function onRequestPost({ env }) {
+export async function onRequestPost({ request, env }) {
+  const body = await readBody(request);
+  const setup = await googleSetup(env, body.gmail_source || "");
   return json({
     redirect_uri: "Cloudflare Functions OAuth callback",
-    sheet_name: "GmailQueue",
+    sheet_name: body.gmail_sheet_name || "GmailQueue",
     steps: [
       {
+        id: "database",
+        label: "D1 저장소",
+        done: setup.hasDb,
+        detail: setup.hasDb ? "D1 저장소가 연결됐습니다." : "Cloudflare Pages Functions에 D1 바인딩 DB를 연결하세요."
+      },
+      {
         id: "cloud",
-        label: "Google Cloud 설정",
-        done: false,
-        detail: "Cloudflare Secret에 OAuth Client를 저장해야 합니다."
+        label: "Google OAuth Secret",
+        done: setup.hasClient,
+        detail: setup.hasClient ? "Google OAuth Secret이 준비됐습니다." : "GOOGLE_OAUTH_CLIENT Secret 또는 GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET이 필요합니다."
       },
       {
         id: "sheet",
         label: "비공개 시트 입력",
-        done: false,
-        detail: "운영 Google Sheet 링크를 연결해야 합니다."
+        done: setup.sheetReady,
+        detail: setup.sheetReady ? "Gmail 시트 링크가 입력됐습니다." : "운영 Google Sheet 링크를 입력하세요."
       },
       {
         id: "connect",
         label: "Google 연결",
-        done: false,
-        detail: "토큰 저장소를 D1 또는 KV로 연결해야 합니다."
+        done: setup.tokenValid,
+        detail: setup.tokenValid ? "Google 연결 토큰이 D1에 저장됐습니다." : "Google 연결을 눌러 권한을 승인하세요."
       },
       {
         id: "fetch",
         label: "결과 가져오기 준비",
-        done: false,
-        detail: "위 항목 완료 후 실제 결과 가져오기가 가능합니다."
+        done: setup.ready,
+        detail: setup.ready ? "비공개 시트 업로드/가져오기를 실행할 수 있습니다." : "위 항목을 완료하면 실제 Google Sheet 연동이 가능합니다."
       }
     ],
-    message: "Cloudflare 미리보기에서는 Google 연결 상태만 안내합니다."
+    message: setup.ready ? "Google Sheet 연동 준비가 완료됐습니다." : "Google Sheet 연동 준비 상태를 확인했습니다."
   }, 200, env);
 }

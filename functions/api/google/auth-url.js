@@ -1,8 +1,10 @@
-import { json } from "../../_shared/cloud-api.js";
+import { json, readBody } from "../../_shared/cloud-api.js";
+import { buildAuthorization } from "../../_shared/google.js";
 
-export function onRequestPost({ env }) {
-  return json({
-    auth_url: "",
-    message: "Google OAuth는 Cloudflare Secret과 토큰 저장소를 연결한 뒤 활성화됩니다."
-  }, 200, env);
+export async function onRequestPost({ request, env }) {
+  const body = await readBody(request);
+  const origin = new URL(request.url).origin;
+  const redirectUri = String(body.redirect_uri || `${origin}/oauth/google/callback`);
+  const result = await buildAuthorization(env, redirectUri);
+  return json(result, 200, env);
 }
