@@ -83,7 +83,8 @@ const state = {
   settingsOpen: false,
   advancedSettingsOpen: false,
   contactImport: null,
-  contactImportDraft: null
+  contactImportDraft: null,
+  contactSelection: new Set()
 };
 
 function apiUrl(path) {
@@ -445,13 +446,77 @@ function renderPeopleTab() {
           <span>${safe(contactImportText())}</span>
         </div>` : ""}
       ${renderContactImportReview()}
+      ${renderContactActions()}
       <div class="summary-row">
         ${summaryItem("보낼 예정", state.queueCounts.ready || 0)}
         ${summaryItem("기다림", state.queueCounts.scheduled || 0)}
         ${summaryItem("제외", state.queueCounts.skipped || 0)}
       </div>
-      ${renderTable(state.queueRows, ["status", "email", "template", "rule", "campaign_step", "next_send_at", "detail"], "아직 명단을 확인하지 않았습니다.")}
+      ${renderContactsTable()}
     </section>`;
+}
+
+function renderContactActions() {
+  const selectedRows = selectedContactRows();
+  const readyRows = selectedRows.filter((row) => row.status === "ready");
+  const hasRows = state.queueRows.length > 0;
+  const hasSelected = selectedRows.length > 0;
+  const hasReady = readyRows.length > 0;
+  return `
+    <div class="contact-actions">
+      <div>
+        <strong>선택한 명단 ${selectedRows.length}명</strong>
+        <span>${hasSelected ? `바로 승인 가능 ${readyRows.length}명` : "보낼 사람을 체크하세요."}</span>
+      </div>
+      <div class="button-row">
+        <button type="button" data-action="select-all-contacts" ${hasRows ? "" : "disabled"}>전체 선택</button>
+        <button type="button" data-action="clear-contact-selection" ${hasSelected ? "" : "disabled"}>선택 해제</button>
+        <button class="primary" type="button" data-action="approve-selected-contacts" ${hasReady ? "" : "disabled"}>선택한 명단만 보내기</button>
+        <button type="button" data-action="delete-selected-contacts" ${hasSelected ? "" : "disabled"}>선택 삭제</button>
+        <button class="danger" type="button" data-action="delete-all-contacts" ${hasRows ? "" : "disabled"}>전체 삭제</button>
+      </div>
+    </div>`;
+}
+
+function renderContactsTable() {
+  if (!state.queueRows.length) {
+    return `<p class="empty">아직 명단을 확인하지 않았습니다.</p>`;
+  }
+  const visibleRows = state.queueRows.slice(0, 80);
+  const allVisibleSelected = visibleRows.length > 0 && visibleRows.every((row) => state.contactSelection.has(String(row.email || "").toLowerCase()));
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="select-col"><input type="checkbox" data-contact-toggle-visible ${allVisibleSelected ? "checked" : ""} aria-label="표시된 명단 선택" /></th>
+            <th>${safe(columnLabel("status"))}</th>
+            <th>${safe(columnLabel("email"))}</th>
+            <th>${safe(columnLabel("template"))}</th>
+            <th>${safe(columnLabel("campaign_step"))}</th>
+            <th>${safe(columnLabel("next_send_at"))}</th>
+            <th>${safe(columnLabel("detail"))}</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${visibleRows.map((row) => {
+            const email = String(row.email || "").toLowerCase();
+            return `
+            <tr class="${state.contactSelection.has(email) ? "selected-row" : ""}">
+              <td class="select-col"><input type="checkbox" data-contact-select="${safe(email)}" ${state.contactSelection.has(email) ? "checked" : ""} aria-label="${safe(row.email)} 선택" /></td>
+              <td>${safe(statusLabels[row.status] || row.status || "")}</td>
+              <td>${safe(row.email || "")}</td>
+              <td>${safe(row.template || "")}</td>
+              <td>${safe(row.campaign_step || row.rule || "")}</td>
+              <td>${safe(row.next_send_at || "")}</td>
+              <td>${safe(row.detail || "")}</td>
+            </tr>
+          `;
+          }).join("")}
+        </tbody>
+      </table>
+      ${state.queueRows.length > visibleRows.length ? `<p class="table-note">처음 ${visibleRows.length}건만 표시합니다. 전체 선택은 불러온 명단 전체에 적용됩니다.</p>` : ""}
+    </div>`;
 }
 
 function renderContactImportReview() {
@@ -885,6 +950,29 @@ function bindEvents() {
     });
   }
 
+  for (const input of document.querySelectorAll("[data-contact-select]")) {
+    input.addEventListener("change", () => {
+      const email = String(input.dataset.contactSelect || "").toLowerCase();
+      if (input.checked) state.contactSelection.add(email);
+      else state.contactSelection.delete(email);
+      syncContactSelection();
+      render();
+    });
+  }
+
+  for (const input of document.querySelectorAll("[data-contact-toggle-visible]")) {
+    input.addEventListener("change", () => {
+      const visibleRows = state.queueRows.slice(0, 80);
+      for (const row of visibleRows) {
+        const email = String(row.email || "").toLowerCase();
+        if (input.checked) state.contactSelection.add(email);
+        else state.contactSelection.delete(email);
+      }
+      syncContactSelection();
+      render();
+    });
+  }
+
   for (const input of document.querySelectorAll("[data-word-index]")) {
     input.addEventListener("change", () => importWordTemplate(Number(input.dataset.wordIndex), input.files?.[0]));
   }
@@ -906,6 +994,37 @@ function bindEvents() {
 function countApprovals(rows) {
   const approved = rows.filter((row) => row.approved === "yes").length;
   return { ready: rows.length, approved, waiting: rows.length - approved };
+}
+
+function syncContactSelection(rows = state.queueRows) {
+  const existing = new Set(rows.map((row) => String(row.email || "").toLowerCase()).filter(Boolean));
+  for (const email of Array.from(state.contactSelection)) {
+    if (!existing.has(email)) state.contactSelection.delete(email);
+  }
+}
+
+function selectedContactRows() {
+  syncContactSelection();
+  return state.queueRows.filter((row) => state.contactSelection.has(String(row.email || "").toLowerCase()));
+}
+
+function selectedContactEmails() {
+  return selectedContactRows().map((row) => String(row.email || "").toLowerCase());
+}
+
+async function selectAllContacts() {
+  for (const row of state.queueRows) {
+    const email = String(row.email || "").toLowerCase();
+    if (email) state.contactSelection.add(email);
+  }
+  setNotice(`명단 ${state.contactSelection.size}명을 선택했습니다.`);
+  render();
+}
+
+async function clearContactSelection() {
+  state.contactSelection.clear();
+  setNotice("명단 선택을 해제했습니다.");
+  render();
 }
 
 function updateFlowField(input) {
@@ -1001,7 +1120,12 @@ async function runAction(action) {
     "import-gmail": importGmail,
     "compare-gmail": compareGmail,
     "save-contact-draft": saveContactImportDraft,
-    "clear-contact-draft": clearContactImportDraft
+    "clear-contact-draft": clearContactImportDraft,
+    "select-all-contacts": selectAllContacts,
+    "clear-contact-selection": clearContactSelection,
+    "approve-selected-contacts": approveSelectedContacts,
+    "delete-selected-contacts": deleteSelectedContacts,
+    "delete-all-contacts": deleteAllContacts
   };
   await handlers[action]?.();
 }
@@ -1049,6 +1173,7 @@ async function plan() {
     state.backend.connected = true;
     state.queueRows = data.rows || [];
     state.queueCounts = data.counts || {};
+    syncContactSelection();
     state.activeTab = "people";
     setNotice(messageFrom(data, `명단 확인 완료: ${countsText(state.queueCounts)}`), "success");
   });
@@ -1127,6 +1252,34 @@ async function prepareApproval() {
     state.queueCounts = data.queue_counts || state.queueCounts;
     state.activeTab = "approval";
     setNotice(messageFrom(data, `승인 대상 ${state.approvalRows.length}건을 만들었습니다.`), "success");
+  });
+}
+
+async function approveSelectedContacts() {
+  const selectedRows = selectedContactRows();
+  const readyEmails = selectedRows
+    .filter((row) => row.status === "ready")
+    .map((row) => row.email);
+  if (!readyEmails.length) {
+    setNotice("선택한 명단 중 지금 보낼 수 있는 사람이 없습니다.", "error");
+    render();
+    return;
+  }
+
+  await withBusy("선택한 명단만 발송 승인에 올리는 중입니다.", async () => {
+    const data = await api("/api/approval/prepare", {
+      method: "POST",
+      body: JSON.stringify({
+        ...formData(),
+        selected_emails: readyEmails,
+        approve_selected: true
+      })
+    });
+    state.approvalRows = data.rows || [];
+    state.approvalCounts = data.counts || countApprovals(state.approvalRows);
+    state.queueCounts = data.queue_counts || state.queueCounts;
+    state.activeTab = "approval";
+    setNotice(messageFrom(data, `선택한 명단 ${state.approvalRows.length}건만 승인 목록에 올렸습니다.`), "success");
   });
 }
 
@@ -1275,6 +1428,7 @@ async function saveContactImportDraft() {
     });
     state.queueRows = data.rows || [];
     state.queueCounts = data.counts || {};
+    syncContactSelection();
     state.approvalRows = [];
     state.approvalCounts = {};
     state.previewRows = [];
@@ -1298,6 +1452,60 @@ async function clearContactImportDraft() {
   render();
 }
 
+async function deleteSelectedContacts() {
+  const emails = selectedContactEmails();
+  if (!emails.length) {
+    setNotice("삭제할 명단을 선택하세요.", "error");
+    render();
+    return;
+  }
+  if (!globalThis.confirm(`선택한 명단 ${emails.length}명을 삭제할까요? 승인 목록과 Gmail 결과도 함께 정리됩니다.`)) return;
+
+  await withBusy("선택한 명단을 삭제하는 중입니다.", async () => {
+    const data = await api("/api/contacts/delete", {
+      method: "POST",
+      body: JSON.stringify({ ...formData(), emails })
+    });
+    applyContactListResponse(data);
+    state.contactSelection.clear();
+    state.activeTab = "people";
+    setNotice(messageFrom(data, `선택한 명단 ${data.summary?.deleted || 0}건을 삭제했습니다.`), "success");
+  });
+}
+
+async function deleteAllContacts() {
+  if (!state.queueRows.length) {
+    setNotice("삭제할 명단이 없습니다.");
+    render();
+    return;
+  }
+  if (!globalThis.confirm("전체 명단을 삭제할까요? 승인 목록과 Gmail 결과도 함께 정리됩니다.")) return;
+
+  await withBusy("전체 명단을 삭제하는 중입니다.", async () => {
+    const data = await api("/api/contacts/delete", {
+      method: "POST",
+      body: JSON.stringify({ ...formData(), all: true })
+    });
+    applyContactListResponse(data);
+    state.contactSelection.clear();
+    state.contactImport = null;
+    state.activeTab = "people";
+    setNotice(messageFrom(data, `전체 명단 ${data.summary?.deleted || 0}건을 삭제했습니다.`), "success");
+  });
+}
+
+function applyContactListResponse(data) {
+  state.queueRows = data.rows || [];
+  state.queueCounts = data.counts || {};
+  state.approvalRows = data.approval_rows || [];
+  state.approvalCounts = data.approval_counts || countApprovals(state.approvalRows);
+  state.gmailRows = data.gmail_rows || state.gmailRows;
+  state.gmailCounts = data.gmail_counts || state.gmailCounts;
+  state.previewRows = [];
+  state.previewSummary = null;
+  syncContactSelection();
+}
+
 function updateContactImportColumn(field, value) {
   if (!state.contactImportDraft) return;
   state.contactImportDraft[field] = Number(value);
@@ -1313,6 +1521,7 @@ async function importGmail() {
     });
     if (data.rows) state.queueRows = data.rows;
     if (data.counts) state.queueCounts = data.counts;
+    syncContactSelection();
     state.activeTab = "gmail";
     await compareGmail(false);
     setNotice(messageFrom(data, `Gmail 결과 반영 완료: 성공 ${data.summary?.imported || 0}건`), "success");

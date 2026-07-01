@@ -49,6 +49,17 @@ button.primary {
   color: #ffffff;
 }
 
+button.danger {
+  border-color: #b42318;
+  background: #ffffff;
+  color: #b42318;
+}
+
+button.danger:hover:not(:disabled) {
+  border-color: #8f1b13;
+  color: #8f1b13;
+}
+
 .page {
   width: min(1360px, calc(100% - 32px));
   margin: 0 auto;
@@ -426,6 +437,29 @@ textarea {
   color: #31513c;
 }
 
+.contact-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.contact-actions strong,
+.contact-actions span {
+  display: block;
+}
+
+.contact-actions span {
+  margin-top: 4px;
+  color: #5b687a;
+  font-size: 0.9rem;
+}
+
 .import-review {
   display: grid;
   gap: 14px;
@@ -561,6 +595,21 @@ td {
   color: #263244;
   font-size: 0.92rem;
   overflow-wrap: anywhere;
+}
+
+.select-col {
+  width: 48px;
+  text-align: center;
+}
+
+.select-col input {
+  width: 18px;
+  min-height: 18px;
+  accent-color: #224f8a;
+}
+
+.selected-row td {
+  background: #edf5ff;
 }
 
 tbody tr:last-child td {
@@ -718,7 +767,8 @@ tbody tr:last-child td {
   .panel-title,
   .settings-head,
   .import-review-head,
-  .flow-head {
+  .flow-head,
+  .contact-actions {
     grid-template-columns: 1fr;
   }
 

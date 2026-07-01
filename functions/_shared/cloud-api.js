@@ -454,6 +454,57 @@ export async function saveContactRows(env, rows) {
   return imported;
 }
 
+export async function deleteContactRows(env, { emails = [], all = false } = {}) {
+  const normalizedEmails = uniqueEmails(emails);
+  const summary = {
+    requested: all ? "all" : normalizedEmails.length,
+    deleted: 0,
+    approvals_deleted: 0,
+    gmail_results_deleted: 0,
+    all: Boolean(all),
+    database: false
+  };
+
+  if (!(await ensureDatabase(env))) return summary;
+  summary.database = true;
+
+  if (all) {
+    summary.deleted = await tableCount(env, "contacts");
+    summary.approvals_deleted = await tableCount(env, "approvals");
+    summary.gmail_results_deleted = await tableCount(env, "gmail_results");
+    await env.DB.prepare("DELETE FROM contacts").run();
+    await env.DB.prepare("DELETE FROM approvals").run();
+    await env.DB.prepare("DELETE FROM gmail_results").run();
+    return summary;
+  }
+
+  for (const email of normalizedEmails) {
+    const contactResult = await env.DB.prepare("DELETE FROM contacts WHERE email = ?").bind(email).run();
+    const approvalResult = await env.DB.prepare("DELETE FROM approvals WHERE email = ?").bind(email).run();
+    const gmailResult = await env.DB.prepare("DELETE FROM gmail_results WHERE email = ?").bind(email).run();
+    summary.deleted += changeCount(contactResult);
+    summary.approvals_deleted += changeCount(approvalResult);
+    summary.gmail_results_deleted += changeCount(gmailResult);
+  }
+
+  return summary;
+}
+
+function uniqueEmails(emails) {
+  return Array.from(new Set((Array.isArray(emails) ? emails : [])
+    .map((email) => String(email || "").trim().toLowerCase())
+    .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))));
+}
+
+async function tableCount(env, table) {
+  const row = await env.DB.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first();
+  return Number(row?.count || 0);
+}
+
+function changeCount(result) {
+  return Number(result?.meta?.changes || result?.changes || 0);
+}
+
 export async function flowStepsFor(env) {
   if (!(await ensureDatabase(env))) return FLOW_STEPS;
   const { results = [] } = await env.DB.prepare(
@@ -543,11 +594,16 @@ export async function templatesFor(env) {
   }));
 }
 
-export async function prepareApprovalRowsFor(env) {
+export async function prepareApprovalRowsFor(env, options = {}) {
+  const selectedEmails = uniqueEmails(options.emails || options.selected_emails || []);
+  const selectedOnly = selectedEmails.length > 0;
+  const selectedEmailSet = new Set(selectedEmails);
+  const autoApprove = Boolean(options.approve_selected || options.approved === "yes");
   const rows = (await queueRowsFor(env))
     .filter((row) => row.status === "ready")
+    .filter((row) => !selectedOnly || selectedEmailSet.has(String(row.email || "").toLowerCase()))
     .map((row) => ({
-      approved: "no",
+      approved: autoApprove ? "yes" : "no",
       email: row.email,
       template: row.template,
       rule: row.rule,
@@ -562,7 +618,7 @@ export async function prepareApprovalRowsFor(env) {
   await env.DB.prepare("DELETE FROM approvals").run();
   for (const row of rows) {
     const key = approvalKey(row.email, row.template);
-    await upsertApproval(env, { ...row, approved: existing.get(key) || row.approved });
+    await upsertApproval(env, { ...row, approved: autoApprove ? "yes" : existing.get(key) || row.approved });
   }
   return approvalRowsFor(env);
 }
@@ -583,7 +639,7 @@ export async function approvalRowsFor(env) {
      FROM approvals
      ORDER BY updated_at DESC, email ASC`
   ).all();
-  return results.length ? results : approvalRows();
+  return results;
 }
 
 export async function saveApprovalRows(env, rows) {
@@ -626,7 +682,7 @@ export async function gmailRowsFor(env) {
      FROM gmail_results
      ORDER BY updated_at DESC, email ASC`
   ).all();
-  return results.length ? results : GMAIL_ROWS;
+  return results;
 }
 
 export async function saveGmailRows(env, rows) {
