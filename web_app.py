@@ -62,6 +62,10 @@ def make_handler():
             if parsed.path == "/":
                 self._html_response(FRIENDLY_DASHBOARD_HTML)
                 return
+            if parsed.path == "/favicon.ico":
+                self.send_response(204)
+                self.end_headers()
+                return
             if parsed.path == "/api/defaults":
                 self._json_response(200, DEFAULTS)
                 return
