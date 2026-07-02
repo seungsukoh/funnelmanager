@@ -958,1136 +958,6 @@ def _send_after_label(step: dict[str, object]) -> str:
     return "후속 메일 없음"
 
 
-DASHBOARD_HTML = r"""<!doctype html>
-<html lang="ko">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Automailing Admin</title>
-  <style>
-    :root {
-      --bg: #f6f7f9;
-      --surface: #ffffff;
-      --line: #d9dee7;
-      --text: #17202a;
-      --muted: #637083;
-      --blue: #1769aa;
-      --green: #1f8a5b;
-      --red: #b42318;
-      --amber: #a15c07;
-      --ink: #243447;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: Arial, "Noto Sans KR", sans-serif;
-      font-size: 14px;
-      letter-spacing: 0;
-    }
-    .shell {
-      display: grid;
-      grid-template-columns: 260px minmax(0, 1fr);
-      min-height: 100vh;
-    }
-    aside {
-      background: #202b3a;
-      color: #eef3f8;
-      padding: 24px 18px;
-    }
-    aside h1 {
-      margin: 0 0 6px;
-      font-size: 20px;
-      font-weight: 700;
-    }
-    aside p {
-      margin: 0 0 22px;
-      color: #b8c4d2;
-      line-height: 1.5;
-    }
-    .nav-item {
-      display: block;
-      padding: 9px 10px;
-      border-radius: 6px;
-      color: #dce6ef;
-      text-decoration: none;
-      margin-bottom: 4px;
-    }
-    .nav-item.active { background: #314155; }
-    main {
-      padding: 24px;
-      max-width: 1440px;
-      width: 100%;
-    }
-    header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 20px;
-    }
-    header h2 {
-      margin: 0 0 4px;
-      font-size: 24px;
-    }
-    header p {
-      margin: 0;
-      color: var(--muted);
-    }
-    .toolbar {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    button {
-      border: 1px solid var(--line);
-      background: var(--surface);
-      color: var(--text);
-      min-height: 36px;
-      padding: 8px 12px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: 600;
-    }
-    button.primary {
-      border-color: var(--blue);
-      background: var(--blue);
-      color: white;
-    }
-    button:disabled {
-      opacity: .6;
-      cursor: wait;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
-      margin-bottom: 18px;
-    }
-    .metric, .panel {
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-    }
-    .metric {
-      padding: 14px;
-      min-height: 82px;
-    }
-    .metric span {
-      display: block;
-      color: var(--muted);
-      font-size: 12px;
-      margin-bottom: 8px;
-    }
-    .metric strong {
-      font-size: 28px;
-    }
-    .work {
-      display: grid;
-      grid-template-columns: minmax(360px, 420px) minmax(0, 1fr);
-      gap: 14px;
-      align-items: start;
-    }
-    .panel h3 {
-      margin: 0;
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--line);
-      font-size: 16px;
-    }
-    .panel-body {
-      padding: 14px 16px;
-    }
-    label {
-      display: block;
-      color: var(--muted);
-      font-size: 12px;
-      margin: 0 0 6px;
-    }
-    input {
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 9px 10px;
-      margin-bottom: 12px;
-      font-size: 13px;
-      min-height: 36px;
-    }
-    .tabs {
-      display: flex;
-      gap: 4px;
-      border-bottom: 1px solid var(--line);
-      padding: 0 12px;
-      background: #fbfcfd;
-    }
-    .tab {
-      border: 0;
-      border-bottom: 2px solid transparent;
-      border-radius: 0;
-      background: transparent;
-      min-height: 42px;
-      color: var(--muted);
-    }
-    .tab.active {
-      border-bottom-color: var(--blue);
-      color: var(--text);
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      table-layout: fixed;
-    }
-    th, td {
-      border-bottom: 1px solid var(--line);
-      padding: 9px 8px;
-      text-align: left;
-      vertical-align: top;
-      overflow-wrap: anywhere;
-    }
-    th {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-      background: #fbfcfd;
-    }
-    .badge {
-      display: inline-block;
-      padding: 3px 7px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 700;
-      background: #e7eef7;
-      color: var(--ink);
-    }
-    .badge.ready, .badge.sent { background: #e5f4ed; color: var(--green); }
-    .badge.skipped { background: #fbe8e6; color: var(--red); }
-    .badge.scheduled { background: #fff3d9; color: var(--amber); }
-    .split {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-    pre {
-      margin: 0;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-      max-height: 360px;
-      overflow: auto;
-      background: #111827;
-      color: #f9fafb;
-      border-radius: 6px;
-      padding: 12px;
-      font-size: 12px;
-    }
-    .status-line {
-      min-height: 20px;
-      color: var(--muted);
-      margin-top: 10px;
-    }
-    @media (max-width: 960px) {
-      .shell, .work, .split { grid-template-columns: 1fr; }
-      aside { position: static; }
-      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      header { display: block; }
-      .toolbar { margin-top: 12px; }
-    }
-  </style>
-</head>
-<body>
-  <div class="shell">
-    <aside>
-      <h1>Automailing</h1>
-      <p>폼 응답 기반 자동 퍼널 메일 관리</p>
-      <a class="nav-item active" href="#dashboard">Dashboard</a>
-      <a class="nav-item" href="#queue">Send Queue</a>
-      <a class="nav-item" href="#timeline">Timeline</a>
-      <a class="nav-item" href="#state">Lead State</a>
-    </aside>
-    <main>
-      <header>
-        <div>
-          <h2>운영 대시보드</h2>
-          <p>발송 전 큐를 만들고 dry-run으로 결과를 검증합니다.</p>
-        </div>
-        <div class="toolbar">
-          <button id="planBtn">큐 생성</button>
-          <button id="dryRunBtn" class="primary">Dry-run 실행</button>
-          <button id="refreshBtn">새로고침</button>
-        </div>
-      </header>
-
-      <section class="grid">
-        <div class="metric"><span>Ready</span><strong id="readyCount">0</strong></div>
-        <div class="metric"><span>Scheduled</span><strong id="scheduledCount">0</strong></div>
-        <div class="metric"><span>Skipped</span><strong id="skippedCount">0</strong></div>
-        <div class="metric"><span>Dry-run Sent</span><strong id="sentCount">0</strong></div>
-      </section>
-
-      <section class="work">
-        <div class="panel">
-          <h3>실행 설정</h3>
-          <div class="panel-body">
-            <label for="contacts">응답/연락처 파일</label>
-            <input id="contacts">
-            <label for="funnel_config">퍼널 설정</label>
-            <input id="funnel_config">
-            <label for="lead_state">리드 상태</label>
-            <input id="lead_state">
-            <label for="campaign_id">캠페인 ID</label>
-            <input id="campaign_id">
-            <label for="queue_output">큐 출력 파일</label>
-            <input id="queue_output">
-            <label for="timeline">타임라인 파일</label>
-            <input id="timeline">
-            <div class="status-line" id="statusLine"></div>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="tabs">
-            <button class="tab active" data-tab="queue">발송 큐</button>
-            <button class="tab" data-tab="report">Dry-run 결과</button>
-            <button class="tab" data-tab="timeline">타임라인</button>
-            <button class="tab" data-tab="state">리드 상태</button>
-            <button class="tab" data-tab="progress">PM 기록</button>
-          </div>
-          <div class="panel-body">
-            <div id="queueTab" class="tab-panel"></div>
-            <div id="reportTab" class="tab-panel" hidden></div>
-            <div id="timelineTab" class="tab-panel" hidden></div>
-            <div id="stateTab" class="tab-panel" hidden></div>
-            <div id="progressTab" class="tab-panel" hidden></div>
-          </div>
-        </div>
-      </section>
-    </main>
-  </div>
-
-  <script>
-    const fields = ["contacts", "funnel_config", "lead_state", "campaign_id", "queue_output", "timeline"];
-    let currentQueue = [];
-    let currentReport = [];
-
-    function payload() {
-      const data = {};
-      for (const key of fields) data[key] = document.getElementById(key).value;
-      return data;
-    }
-
-    async function api(path, options = {}) {
-      const response = await fetch(path, options);
-      const data = await response.json();
-      if (!response.ok || data.ok === false) throw new Error(data.error || "요청 실패");
-      return data;
-    }
-
-    function setBusy(isBusy) {
-      for (const id of ["planBtn", "dryRunBtn", "refreshBtn"]) {
-        document.getElementById(id).disabled = isBusy;
-      }
-    }
-
-    function setStatus(text) {
-      document.getElementById("statusLine").textContent = text;
-    }
-
-    function renderTable(targetId, rows, columns) {
-      const target = document.getElementById(targetId);
-      if (!rows.length) {
-        target.innerHTML = "<p>표시할 데이터가 없습니다.</p>";
-        return;
-      }
-      const head = columns.map(col => `<th>${escapeHtml(col.label)}</th>`).join("");
-      const body = rows.map(row => {
-        const cells = columns.map(col => {
-          const value = row[col.key] || "";
-          if (col.key === "status") return `<td><span class="badge ${escapeHtml(value)}">${escapeHtml(value)}</span></td>`;
-          return `<td>${escapeHtml(value)}</td>`;
-        }).join("");
-        return `<tr>${cells}</tr>`;
-      }).join("");
-      target.innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
-    }
-
-    function renderTimeline(rows) {
-      renderTable("timelineTab", rows, [
-        { key: "occurred_at", label: "시간" },
-        { key: "email", label: "이메일" },
-        { key: "event_type", label: "이벤트" },
-        { key: "rule_name", label: "룰" },
-        { key: "template_name", label: "템플릿" },
-        { key: "detail", label: "상세" }
-      ]);
-    }
-
-    function renderLeadState(state) {
-      const contacts = state.contacts || {};
-      const rows = Object.entries(contacts).map(([email, value]) => ({
-        email,
-        status: value.status || "",
-        campaign_step: value.campaign_step || "",
-        next_send_at: value.next_send_at || "",
-        tags: Array.isArray(value.tags) ? value.tags.join(", ") : ""
-      }));
-      renderTable("stateTab", rows, [
-        { key: "email", label: "이메일" },
-        { key: "status", label: "상태" },
-        { key: "campaign_step", label: "단계" },
-        { key: "next_send_at", label: "다음 발송" },
-        { key: "tags", label: "태그" }
-      ]);
-    }
-
-    function updateMetrics(queueRows, reportRows) {
-      const counts = { ready: 0, scheduled: 0, skipped: 0 };
-      for (const row of queueRows) counts[row.status] = (counts[row.status] || 0) + 1;
-      document.getElementById("readyCount").textContent = counts.ready || 0;
-      document.getElementById("scheduledCount").textContent = counts.scheduled || 0;
-      document.getElementById("skippedCount").textContent = counts.skipped || 0;
-      document.getElementById("sentCount").textContent = reportRows.filter(row => row.status === "sent").length;
-    }
-
-    async function planQueue() {
-      setBusy(true);
-      setStatus("큐 생성 중...");
-      try {
-        const data = await api("/api/plan", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload())
-        });
-        currentQueue = data.rows || [];
-        renderQueue();
-        updateMetrics(currentQueue, currentReport);
-        setStatus(`큐 생성 완료: ${data.queue_path}`);
-      } catch (error) {
-        setStatus(error.message);
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    async function dryRun() {
-      setBusy(true);
-      setStatus("Dry-run 실행 중...");
-      try {
-        const data = await api("/api/dry-run", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload())
-        });
-        currentReport = data.report_rows || [];
-        renderReport();
-        await refreshTimeline();
-        updateMetrics(currentQueue, currentReport);
-        setStatus(`Dry-run 완료: processed=${data.summary.processed}, sent=${data.summary.sent}, skipped=${data.summary.skipped}, failed=${data.summary.failed}`);
-      } catch (error) {
-        setStatus(error.message);
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    function renderQueue() {
-      renderTable("queueTab", currentQueue, [
-        { key: "email", label: "이메일" },
-        { key: "status", label: "상태" },
-        { key: "rule", label: "룰" },
-        { key: "template", label: "템플릿" },
-        { key: "campaign_step", label: "단계" },
-        { key: "next_send_at", label: "다음 발송" },
-        { key: "detail", label: "상세" }
-      ]);
-    }
-
-    function renderReport() {
-      renderTable("reportTab", currentReport, [
-        { key: "original_email", label: "이메일" },
-        { key: "status", label: "상태" },
-        { key: "rule", label: "룰" },
-        { key: "template", label: "템플릿" },
-        { key: "detail", label: "상세" }
-      ]);
-    }
-
-    async function refreshQueue() {
-      const path = encodeURIComponent(document.getElementById("queue_output").value);
-      const data = await api(`/api/queue?path=${path}`);
-      currentQueue = data.rows || [];
-      renderQueue();
-    }
-
-    async function refreshTimeline() {
-      const path = encodeURIComponent(document.getElementById("timeline").value);
-      const data = await api(`/api/timeline?path=${path}`);
-      renderTimeline(data.rows || []);
-    }
-
-    async function refreshState() {
-      const path = encodeURIComponent(document.getElementById("lead_state").value);
-      const data = await api(`/api/lead-state?path=${path}`);
-      renderLeadState(data.state || {});
-    }
-
-    async function refreshProgress() {
-      const data = await api("/api/progress");
-      document.getElementById("progressTab").innerHTML = `<pre>${escapeHtml(data.markdown || "")}</pre>`;
-    }
-
-    async function refreshAll() {
-      setBusy(true);
-      try {
-        await Promise.all([refreshQueue(), refreshTimeline(), refreshState(), refreshProgress()]);
-        updateMetrics(currentQueue, currentReport);
-        setStatus("새로고침 완료");
-      } catch (error) {
-        setStatus(error.message);
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    function switchTab(name) {
-      for (const button of document.querySelectorAll(".tab")) {
-        button.classList.toggle("active", button.dataset.tab === name);
-      }
-      for (const panel of document.querySelectorAll(".tab-panel")) panel.hidden = true;
-      document.getElementById(`${name}Tab`).hidden = false;
-    }
-
-    function escapeHtml(value) {
-      return String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-    }
-
-    async function boot() {
-      const defaults = await api("/api/defaults");
-      for (const key of fields) document.getElementById(key).value = defaults[key] || "";
-      document.getElementById("planBtn").addEventListener("click", planQueue);
-      document.getElementById("dryRunBtn").addEventListener("click", dryRun);
-      document.getElementById("refreshBtn").addEventListener("click", refreshAll);
-      for (const button of document.querySelectorAll(".tab")) {
-        button.addEventListener("click", () => switchTab(button.dataset.tab));
-      }
-      await planQueue();
-      await refreshAll();
-    }
-
-    boot().catch(error => setStatus(error.message));
-  </script>
-</body>
-</html>
-"""
-
-
-SIMPLE_DASHBOARD_HTML = r"""<!doctype html>
-<html lang="ko">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>자동 메일 발송</title>
-  <style>
-    :root {
-      --bg: #f4f6f8;
-      --panel: #ffffff;
-      --line: #d7dde5;
-      --text: #18212f;
-      --muted: #617086;
-      --blue: #1769aa;
-      --green: #1f7a4d;
-      --red: #b42318;
-      --amber: #9a6700;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: Arial, "Noto Sans KR", sans-serif;
-      font-size: 14px;
-      letter-spacing: 0;
-    }
-    .wrap {
-      width: min(1280px, calc(100% - 32px));
-      margin: 0 auto;
-      padding: 22px 0 32px;
-    }
-    header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 18px;
-    }
-    h1 {
-      margin: 0 0 6px;
-      font-size: 26px;
-    }
-    .sub {
-      color: var(--muted);
-      margin: 0;
-      line-height: 1.5;
-    }
-    .actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      justify-content: flex-end;
-    }
-    button {
-      border: 1px solid var(--line);
-      background: var(--panel);
-      color: var(--text);
-      border-radius: 6px;
-      padding: 9px 12px;
-      min-height: 38px;
-      font-weight: 700;
-      cursor: pointer;
-    }
-    button.primary {
-      border-color: var(--blue);
-      background: var(--blue);
-      color: #fff;
-    }
-    button:disabled {
-      opacity: .6;
-      cursor: wait;
-    }
-    .steps {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-      margin-bottom: 16px;
-    }
-    .step {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 13px;
-      min-height: 88px;
-    }
-    .step strong {
-      display: block;
-      margin-bottom: 7px;
-      font-size: 15px;
-    }
-    .step span {
-      color: var(--muted);
-      line-height: 1.45;
-    }
-    .cards {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-      margin-bottom: 16px;
-    }
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 14px;
-    }
-    .card span {
-      display: block;
-      color: var(--muted);
-      font-size: 12px;
-      margin-bottom: 8px;
-    }
-    .card strong {
-      font-size: 28px;
-    }
-    .layout {
-      display: grid;
-      grid-template-columns: 330px minmax(0, 1fr);
-      gap: 14px;
-      align-items: start;
-    }
-    .box {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-    }
-    .box h2 {
-      margin: 0;
-      padding: 14px 15px;
-      border-bottom: 1px solid var(--line);
-      font-size: 16px;
-    }
-    .box-body {
-      padding: 14px 15px;
-    }
-    .flow {
-      display: grid;
-      gap: 8px;
-    }
-    .flow-row {
-      border: 1px solid var(--line);
-      border-radius: 7px;
-      padding: 10px;
-      background: #fbfcfd;
-    }
-    .flow-row b {
-      display: block;
-      margin-bottom: 4px;
-    }
-    .flow-row p {
-      margin: 0;
-      color: var(--muted);
-      line-height: 1.45;
-    }
-    details {
-      margin-top: 12px;
-      border-top: 1px solid var(--line);
-      padding-top: 12px;
-    }
-    summary {
-      cursor: pointer;
-      color: var(--muted);
-      font-weight: 700;
-    }
-    label {
-      display: block;
-      margin: 10px 0 5px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-    input {
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 9px;
-      min-height: 36px;
-      font-size: 13px;
-    }
-    .tabs {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      padding: 10px 10px 0;
-      border-bottom: 1px solid var(--line);
-      background: #fbfcfd;
-      border-radius: 8px 8px 0 0;
-    }
-    .tab {
-      border: 0;
-      border-bottom: 2px solid transparent;
-      border-radius: 0;
-      background: transparent;
-      color: var(--muted);
-    }
-    .tab.active {
-      color: var(--text);
-      border-bottom-color: var(--blue);
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      table-layout: fixed;
-    }
-    th, td {
-      border-bottom: 1px solid var(--line);
-      padding: 9px 8px;
-      text-align: left;
-      vertical-align: top;
-      overflow-wrap: anywhere;
-    }
-    th {
-      color: var(--muted);
-      background: #fbfcfd;
-      font-size: 12px;
-    }
-    .badge {
-      display: inline-block;
-      border-radius: 999px;
-      padding: 4px 8px;
-      font-size: 12px;
-      font-weight: 700;
-      background: #e7eef7;
-    }
-    .ready, .sent, .matched { color: var(--green); background: #e5f4ed; }
-    .skipped, .needs_review { color: var(--red); background: #fbe8e6; }
-    .scheduled, .pending { color: var(--amber); background: #fff3d9; }
-    .ignored { color: var(--muted); background: #eef1f5; }
-    .note {
-      color: var(--muted);
-      margin: 10px 0 0;
-      min-height: 20px;
-    }
-    pre {
-      margin: 0;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-      max-height: 360px;
-      overflow: auto;
-      background: #111827;
-      color: #f9fafb;
-      border-radius: 6px;
-      padding: 12px;
-      font-size: 12px;
-    }
-    @media (max-width: 920px) {
-      header, .layout { display: block; }
-      .actions { justify-content: flex-start; margin-top: 12px; }
-      .steps, .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .layout > .box { margin-bottom: 14px; }
-    }
-  </style>
-</head>
-<body>
-  <main class="wrap">
-    <header>
-      <div>
-        <h1>자동 메일 발송 준비</h1>
-        <p class="sub">명단을 확인하고, 누구에게 어떤 메일이 갈지 미리 본 뒤 테스트합니다.</p>
-      </div>
-      <div class="actions">
-        <button id="planBtn">발송 대상 확인</button>
-        <button id="dryRunBtn" class="primary">메일 미리보기 만들기</button>
-        <button id="refreshBtn">화면 새로고침</button>
-      </div>
-    </header>
-
-    <section class="steps">
-      <div class="step"><strong>1. 명단 선택</strong><span>폼 응답이나 엑셀 명단을 불러옵니다.</span></div>
-      <div class="step"><strong>2. 받을 사람 확인</strong><span>보낼 사람, 나중에 보낼 사람, 제외할 사람을 나눕니다.</span></div>
-      <div class="step"><strong>3. 메일 미리보기</strong><span>실제 발송 없이 결과 파일을 만듭니다.</span></div>
-      <div class="step"><strong>4. 테스트 발송</strong><span>내 메일로 먼저 확인한 뒤 실제 발송합니다.</span></div>
-    </section>
-
-    <section class="cards">
-      <div class="card"><span>지금 보낼 사람</span><strong id="readyCount">0</strong></div>
-      <div class="card"><span>나중에 보낼 사람</span><strong id="scheduledCount">0</strong></div>
-      <div class="card"><span>보내지 않을 사람</span><strong id="skippedCount">0</strong></div>
-      <div class="card"><span>미리보기 완료</span><strong id="sentCount">0</strong></div>
-    </section>
-
-    <section class="layout">
-      <aside class="box">
-        <h2>이번 발송 흐름</h2>
-        <div class="box-body">
-          <div class="flow">
-            <div class="flow-row">
-              <b>참석한 사람</b>
-              <p>감사 메일을 보내고, 2일 뒤 추가 안내 대상으로 둡니다.</p>
-            </div>
-            <div class="flow-row">
-              <b>미참석한 사람</b>
-              <p>자료 공유 메일을 보내고, 3일 뒤 다시 확인합니다.</p>
-            </div>
-            <div class="flow-row">
-              <b>동의하지 않았거나 거부한 사람</b>
-              <p>자동으로 제외합니다.</p>
-            </div>
-            <div class="flow-row">
-              <b>이미 전환된 사람</b>
-              <p>더 이상 후속 메일을 보내지 않습니다.</p>
-            </div>
-          </div>
-
-          <details>
-            <summary>설정 파일 보기</summary>
-            <label for="contacts">명단 파일</label>
-            <input id="contacts">
-            <label for="funnel_config">메일 흐름 설정</label>
-            <input id="funnel_config">
-            <label for="lead_state">고객 상태 파일</label>
-            <input id="lead_state">
-            <label for="campaign_id">이번 발송 이름</label>
-            <input id="campaign_id">
-            <label for="queue_output">대상 확인 파일</label>
-            <input id="queue_output">
-            <label for="timeline">고객 기록 파일</label>
-            <input id="timeline">
-          </details>
-          <p class="note" id="statusLine"></p>
-        </div>
-      </aside>
-
-      <section class="box">
-        <div class="tabs">
-          <button class="tab active" data-tab="people">받을 사람</button>
-          <button class="tab" data-tab="preview">미리보기 결과</button>
-          <button class="tab" data-tab="history">고객별 기록</button>
-          <button class="tab" data-tab="state">고객 상태</button>
-          <button class="tab" data-tab="pm">진행 기록</button>
-        </div>
-        <div class="box-body">
-          <div id="peopleTab"></div>
-          <div id="previewTab" hidden></div>
-          <div id="historyTab" hidden></div>
-          <div id="stateTab" hidden></div>
-          <div id="pmTab" hidden></div>
-        </div>
-      </section>
-    </section>
-  </main>
-
-  <script>
-    const fields = ["contacts", "funnel_config", "lead_state", "campaign_id", "queue_output", "timeline"];
-    const statusLabels = {
-      ready: "보낼 예정",
-      sent: "미리보기 완료",
-      skipped: "보내지 않음",
-      scheduled: "나중에 보냄",
-      failed: "문제 있음"
-    };
-    let peopleRows = [];
-    let previewRows = [];
-
-    function formData() {
-      const data = {};
-      for (const key of fields) data[key] = document.getElementById(key).value;
-      return data;
-    }
-
-    async function api(path, options = {}) {
-      const response = await fetch(path, options);
-      const data = await response.json();
-      if (!response.ok || data.ok === false) throw new Error(data.error || "작업에 실패했습니다.");
-      return data;
-    }
-
-    function busy(value) {
-      for (const id of ["planBtn", "dryRunBtn", "refreshBtn"]) document.getElementById(id).disabled = value;
-    }
-
-    function note(text) {
-      document.getElementById("statusLine").textContent = text;
-    }
-
-    function badge(value) {
-      const label = statusLabels[value] || value || "";
-      return `<span class="badge ${safe(value)}">${safe(label)}</span>`;
-    }
-
-    function table(targetId, rows, columns) {
-      const target = document.getElementById(targetId);
-      if (!rows.length) {
-        target.innerHTML = "<p class='note'>아직 표시할 내용이 없습니다.</p>";
-        return;
-      }
-      target.innerHTML = `
-        <table>
-          <thead><tr>${columns.map(col => `<th>${safe(col.label)}</th>`).join("")}</tr></thead>
-          <tbody>
-            ${rows.map(row => `<tr>${columns.map(col => `<td>${col.key === "status" ? badge(row[col.key]) : safe(row[col.key] || "")}</td>`).join("")}</tr>`).join("")}
-          </tbody>
-        </table>`;
-    }
-
-    function showPeople() {
-      table("peopleTab", peopleRows, [
-        { key: "email", label: "받는 사람" },
-        { key: "status", label: "결과" },
-        { key: "template", label: "메일 종류" },
-        { key: "campaign_step", label: "현재 단계" },
-        { key: "next_send_at", label: "다음 예정일" },
-        { key: "detail", label: "이유" }
-      ]);
-    }
-
-    function showPreview() {
-      table("previewTab", previewRows, [
-        { key: "original_email", label: "받는 사람" },
-        { key: "status", label: "결과" },
-        { key: "template", label: "메일 종류" },
-        { key: "detail", label: "미리보기 파일/이유" }
-      ]);
-    }
-
-    function showHistory(rows) {
-      table("historyTab", rows, [
-        { key: "occurred_at", label: "시간" },
-        { key: "email", label: "고객" },
-        { key: "event_type", label: "일어난 일" },
-        { key: "template_name", label: "메일 종류" },
-        { key: "detail", label: "상세" }
-      ]);
-    }
-
-    function showState(state) {
-      const contacts = state.contacts || {};
-      const rows = Object.entries(contacts).map(([email, item]) => ({
-        email,
-        status: item.status || "",
-        campaign_step: item.campaign_step || "",
-        next_send_at: item.next_send_at || "",
-        tags: Array.isArray(item.tags) ? item.tags.join(", ") : ""
-      }));
-      table("stateTab", rows, [
-        { key: "email", label: "고객" },
-        { key: "status", label: "상태" },
-        { key: "campaign_step", label: "현재 단계" },
-        { key: "next_send_at", label: "다음 예정일" },
-        { key: "tags", label: "분류" }
-      ]);
-    }
-
-    function metrics() {
-      const count = key => peopleRows.filter(row => row.status === key).length;
-      document.getElementById("readyCount").textContent = count("ready");
-      document.getElementById("scheduledCount").textContent = count("scheduled");
-      document.getElementById("skippedCount").textContent = count("skipped");
-      document.getElementById("sentCount").textContent = previewRows.filter(row => row.status === "sent").length;
-      updateWorkflowStatus();
-    }
-
-    function updateWorkflowStatus() {
-      const ready = peopleRows.filter(row => row.status === "ready").length;
-      const scheduled = peopleRows.filter(row => row.status === "scheduled").length;
-      const skipped = peopleRows.filter(row => row.status === "skipped").length;
-      const approved = approvalRows.filter(row => row.approved === "yes").length;
-      const waiting = approvalRows.length - approved;
-      const previewSent = previewRows.filter(row => row.status === "sent").length;
-      const gmailTotal = Object.values(gmailCounts || {}).reduce((sum, value) => sum + Number(value || 0), 0);
-
-      setText("peopleStepStatus", peopleRows.length ? `보낼 사람 ${ready}명 / 나중 ${scheduled}명 / 제외 ${skipped}명` : "아직 확인 전입니다.");
-      setText("flowStepStatus", flowSteps.length ? `${flowSteps.length}개 단계가 준비됐습니다.` : "메일 흐름을 불러오는 중입니다.");
-      setText("approvalStepStatus", approvalRows.length ? `승인 ${approved}건 / 대기 ${waiting}건` : "승인 목록 전입니다.");
-      setText("previewStepStatus", previewRows.length ? `미리보기 ${previewSent}건 완료` : "미리보기 전입니다.");
-      setText("gmailStepStatus", gmailTotal ? `같음 ${gmailCounts.matched || 0}건 / 확인 필요 ${gmailCounts.needs_review || 0}건` : "결과 확인 전입니다.");
-
-      const nextId = !peopleRows.length
-        ? "workflowPeople"
-        : !approvalRows.length
-          ? "workflowApproval"
-          : !previewRows.length
-            ? "workflowPreview"
-            : !gmailTotal
-              ? "workflowGmail"
-              : "";
-      for (const card of document.querySelectorAll(".work-card")) {
-        card.classList.toggle("next", card.id === nextId);
-      }
-      const labels = {
-        workflowPeople: "다음 작업: 명단 확인",
-        workflowApproval: "다음 작업: 발송 승인",
-        workflowPreview: "다음 작업: 미리보기 만들기",
-        workflowGmail: "다음 작업: Gmail 결과 확인"
-      };
-      setText("nextStepText", labels[nextId] || "오늘 흐름을 모두 확인했습니다.");
-    }
-
-    function setText(id, text) {
-      const element = document.getElementById(id);
-      if (element) element.textContent = text;
-    }
-
-    async function plan() {
-      busy(true);
-      note("받을 사람을 확인하는 중입니다...");
-      try {
-        const data = await api("/api/plan", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(formData())
-        });
-        peopleRows = data.rows || [];
-        showPeople();
-        metrics();
-        note("받을 사람 확인이 끝났습니다.");
-      } catch (error) {
-        note(error.message);
-      } finally {
-        busy(false);
-      }
-    }
-
-    async function preview() {
-      busy(true);
-      note("메일 미리보기를 만드는 중입니다...");
-      try {
-        const data = await api("/api/dry-run", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(formData())
-        });
-        previewRows = data.report_rows || [];
-        showPreview();
-        await refreshHistory();
-        metrics();
-        note(`미리보기 완료: ${data.summary.sent}건 준비, ${data.summary.skipped}건 제외`);
-        switchTab("preview");
-      } catch (error) {
-        note(error.message);
-      } finally {
-        busy(false);
-      }
-    }
-
-    async function refreshPeople() {
-      const path = encodeURIComponent(document.getElementById("queue_output").value);
-      const data = await api(`/api/queue?path=${path}`);
-      peopleRows = data.rows || [];
-      showPeople();
-    }
-
-    async function refreshHistory() {
-      const path = encodeURIComponent(document.getElementById("timeline").value);
-      const data = await api(`/api/timeline?path=${path}`);
-      showHistory(data.rows || []);
-    }
-
-    async function refreshState() {
-      const path = encodeURIComponent(document.getElementById("lead_state").value);
-      const data = await api(`/api/lead-state?path=${path}`);
-      showState(data.state || {});
-    }
-
-    async function refreshPm() {
-      const data = await api("/api/progress");
-      document.getElementById("pmTab").innerHTML = `<pre>${safe(data.markdown || "")}</pre>`;
-    }
-
-    async function refreshAll() {
-      busy(true);
-      try {
-        await Promise.all([refreshPeople(), refreshHistory(), refreshState(), refreshPm()]);
-        metrics();
-        note("화면을 새로고침했습니다.");
-      } catch (error) {
-        note(error.message);
-      } finally {
-        busy(false);
-      }
-    }
-
-    function switchTab(name) {
-      for (const button of document.querySelectorAll(".tab")) button.classList.toggle("active", button.dataset.tab === name);
-      for (const id of ["people", "preview", "history", "state", "pm"]) document.getElementById(`${id}Tab`).hidden = id !== name;
-    }
-
-    function safe(value) {
-      return String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-    }
-
-    async function boot() {
-      const defaults = await api("/api/defaults");
-      for (const key of fields) document.getElementById(key).value = defaults[key] || "";
-      document.getElementById("planBtn").addEventListener("click", plan);
-      document.getElementById("dryRunBtn").addEventListener("click", preview);
-      document.getElementById("refreshBtn").addEventListener("click", refreshAll);
-      for (const button of document.querySelectorAll(".tab")) button.addEventListener("click", () => switchTab(button.dataset.tab));
-      await plan();
-      await refreshAll();
-    }
-
-    boot().catch(error => note(error.message));
-  </script>
-</body>
-</html>
-"""
-
-
 FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
 <html lang="ko">
 <head>
@@ -2144,7 +1014,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       gap: 8px;
     }
     button {
-      min-height: 38px;
+      min-height: 42px;
       border: 1px solid var(--line);
       border-radius: 6px;
       background: var(--panel);
@@ -2160,7 +1030,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     }
     button:disabled {
       opacity: .62;
-      cursor: wait;
+      cursor: not-allowed;
     }
     .workflow {
       margin-bottom: 14px;
@@ -2231,7 +1101,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       gap: 6px;
     }
     .work-actions button {
-      min-height: 34px;
+      min-height: 40px;
       padding: 7px 9px;
       font-size: 13px;
     }
@@ -2355,6 +1225,9 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       border-collapse: collapse;
       table-layout: fixed;
     }
+    .table-wrap {
+      overflow-x: auto;
+    }
     th, td {
       border-bottom: 1px solid var(--line);
       padding: 9px 8px;
@@ -2474,6 +1347,38 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       align-items: center;
       margin-top: 10px;
     }
+    .gmail-flow {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .gmail-stage {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }
+    .gmail-stage.done {
+      border-color: #b8dcc8;
+      background: #f1faf4;
+    }
+    .gmail-stage.next {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 2px rgba(23, 105, 170, .1);
+    }
+    .gmail-stage strong,
+    .gmail-stage span {
+      display: block;
+    }
+    .gmail-stage span {
+      color: var(--muted);
+      line-height: 1.45;
+      margin-top: 3px;
+    }
     .setup-guide {
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -2573,6 +1478,48 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     }
     @media (max-width: 620px) {
       .workflow-grid, .steps, .cards, .form-grid { grid-template-columns: 1fr; }
+      button, .work-actions button, .message-tools button, .link-button {
+        min-height: 44px;
+      }
+      .table-wrap {
+        overflow: visible;
+      }
+      .responsive-table,
+      .responsive-table thead,
+      .responsive-table tbody,
+      .responsive-table tr,
+      .responsive-table th,
+      .responsive-table td {
+        display: block;
+      }
+      .responsive-table thead {
+        display: none;
+      }
+      .responsive-table tr {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        margin-bottom: 10px;
+        background: #fff;
+        overflow: hidden;
+      }
+      .responsive-table td {
+        display: grid;
+        grid-template-columns: 96px minmax(0, 1fr);
+        gap: 8px;
+        padding: 9px 10px;
+      }
+      .responsive-table td::before {
+        content: attr(data-label);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .gmail-stage {
+        grid-template-columns: 34px minmax(0, 1fr);
+      }
+      .gmail-stage button {
+        grid-column: 1 / -1;
+      }
     }
   </style>
 </head>
@@ -2644,12 +1591,8 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
           <div class="work-status" id="gmailStepStatus">결과 확인 전입니다.</div>
           <div class="work-actions">
             <button id="exportGmailBtn" class="primary">발송 준비</button>
-            <button id="uploadPrivateGmailBtn">시트에 올리기</button>
             <button id="connectGoogleBtn">Google 연결</button>
-            <button id="fetchPrivateGmailBtn">결과 가져오기</button>
-            <button id="importGmailBtn">결과 반영</button>
-            <button id="compareGmailBtn">확인</button>
-            <button id="fetchGmailBtn" type="button">CSV 링크</button>
+            <button type="button" data-open-tab="gmail">전체 단계</button>
           </div>
         </article>
       </div>
@@ -2736,6 +1679,28 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       pending: "아직 대기",
       ignored: "제외"
     };
+    const templateLabels = {
+      event_followup: "참석 고객 첫 메일",
+      event_second_touch: "참석 고객 두 번째 메일",
+      no_show_followup: "미참석 고객 첫 메일"
+    };
+    const stageLabels = {
+      attended_first_touch: "참석 고객 첫 메일 단계",
+      attended_second_touch: "참석 고객 두 번째 메일 단계",
+      no_show_first_touch: "미참석 고객 첫 메일 단계",
+      no_show_second_touch: "미참석 고객 두 번째 메일 단계",
+      closed: "종료됨"
+    };
+    const eventLabels = {
+      dry_run_sent: "미리보기 완료",
+      skipped: "제외",
+      sent: "발송 완료",
+      failed: "발송 실패"
+    };
+    const detailLabels = {
+      ready: "발송 가능",
+      "수신거부": "수신거부로 제외"
+    };
     let peopleRows = [];
     let previewRows = [];
     let flowSteps = [];
@@ -2746,6 +1711,7 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     let gmailQueuePending = 0;
     let gmailUploadedRows = 0;
     let googleSetup = null;
+    let isBusy = false;
 
     function formData() {
       const data = {};
@@ -2761,10 +1727,12 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     }
 
     function busy(value) {
-      for (const id of ["planBtn", "dryRunBtn", "prepareApprovalBtn", "exportGmailBtn", "uploadPrivateGmailBtn", "connectGoogleBtn", "fetchPrivateGmailBtn", "fetchGmailBtn", "importGmailBtn", "compareGmailBtn", "saveFlowBtn", "refreshBtn"]) {
+      isBusy = value;
+      for (const id of ["planBtn", "dryRunBtn", "prepareApprovalBtn", "prepareApprovalInTabBtn", "exportGmailBtn", "exportGmailInTabBtn", "uploadPrivateGmailBtn", "uploadPrivateGmailInTabBtn", "connectGoogleBtn", "connectGoogleInTabBtn", "connectGoogleGuideBtn", "fetchPrivateGmailBtn", "fetchPrivateGmailInTabBtn", "fetchGmailBtn", "fetchGmailInTabBtn", "importGmailBtn", "importGmailInTabBtn", "compareGmailBtn", "compareGmailInTabBtn", "saveFlowBtn", "saveApprovalBtn", "refreshBtn"]) {
         const element = document.getElementById(id);
         if (element) element.disabled = value;
       }
+      if (!value) updateWorkflowStatus();
     }
 
     function note(text) {
@@ -2776,6 +1744,53 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       return `<span class="badge ${safe(value)}">${safe(label)}</span>`;
     }
 
+    function friendlyTemplate(value) {
+      return templateLabels[value] || value || "";
+    }
+
+    function friendlyStage(value) {
+      if (!value) return "";
+      const step = flowSteps.find(item => item.id === value || item.template === value);
+      return step ? (step.stage_label || step.audience || value) : (stageLabels[value] || value);
+    }
+
+    function friendlyDate(value) {
+      if (!value) return "";
+      const text = String(value);
+      const date = new Date(text);
+      if (Number.isNaN(date.getTime())) return text;
+      const year = date.getUTCFullYear();
+      if (year <= 2000) return "지금 발송 가능";
+      if (year >= 2099) return "예약 대기";
+      return text.replace("T", " ").replace(/\+00:00$/, "").replace(/:00$/, "");
+    }
+
+    function friendlyDetail(value) {
+      if (!value) return "";
+      const text = String(value);
+      if (detailLabels[text]) return detailLabels[text];
+      if (text.startsWith("not due until ")) return "예약일 전이라 대기";
+      if (text.startsWith("terminal status: ")) return `${text.replace("terminal status: ", "")} 상태로 제외`;
+      return text;
+    }
+
+    function renderCell(row, column) {
+      const value = row[column.key] || "";
+      if (column.key === "status" || column.key === "review_status") return badge(value);
+      if (column.key === "template" || column.key === "template_name") return safe(friendlyTemplate(value));
+      if (column.key === "campaign_step" || column.key === "customer_step" || column.key === "rule") return safe(friendlyStage(value));
+      if (column.key === "next_send_at" || column.key === "occurred_at") return safe(friendlyDate(value));
+      if (column.key === "event_type") return safe(eventLabels[value] || value || "");
+      if (column.key === "detail") {
+        const detail = String(value || "");
+        if (detail.toLowerCase().endsWith(".html")) {
+          return `<a class="link-button" href="/file?path=${encodeURIComponent(detail)}" target="_blank" rel="noopener">미리보기 열기</a>`;
+        }
+        return safe(friendlyDetail(detail));
+      }
+      return safe(value);
+    }
+
     function table(targetId, rows, columns) {
       const target = document.getElementById(targetId);
       if (!rows.length) {
@@ -2783,12 +1798,12 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
         return;
       }
       target.innerHTML = `
-        <table>
+        <div class="table-wrap"><table class="responsive-table">
           <thead><tr>${columns.map(col => `<th>${safe(col.label)}</th>`).join("")}</tr></thead>
           <tbody>
-            ${rows.map(row => `<tr>${columns.map(col => `<td>${col.key === "status" ? badge(row[col.key]) : safe(row[col.key] || "")}</td>`).join("")}</tr>`).join("")}
+            ${rows.map(row => `<tr>${columns.map(col => `<td data-label="${safe(col.label)}">${renderCell(row, col)}</td>`).join("")}</tr>`).join("")}
           </tbody>
-        </table>`;
+        </table></div>`;
     }
 
     function showPeople() {
@@ -2959,30 +1974,57 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       }
 
       const approvedCount = approvalRows.filter(row => row.approved === "yes").length;
+      const waitingCount = approvalRows.length - approvedCount;
       target.innerHTML = `
         <div class="message-tools">
           <button type="button" id="approveAllBtn">전체 승인</button>
           <button type="button" id="clearApprovalBtn">전체 해제</button>
           <button type="button" class="primary" id="saveApprovalBtn">승인 목록 저장</button>
-          <span class="file-name">승인 ${approvedCount}건 / 대기 ${approvalRows.length}건</span>
+          <span class="file-name">승인 ${approvedCount}건 / 대기 ${waitingCount}건</span>
         </div>
-        <table>
+        <div class="table-wrap"><table class="responsive-table">
           <thead><tr><th>승인</th><th>받는 사람</th><th>보낼 메일</th><th>단계</th><th>상세</th></tr></thead>
           <tbody>
             ${approvalRows.map((row, index) => `
               <tr>
-                <td><input type="checkbox" data-approval-index="${index}" ${row.approved === "yes" ? "checked" : ""}></td>
-                <td>${safe(row.email)}</td>
-                <td>${safe(row.template)}</td>
-                <td>${safe(stageLabelForRow(row))}</td>
-                <td>${safe(row.detail || "")}</td>
+                <td data-label="승인"><input type="checkbox" data-approval-index="${index}" ${row.approved === "yes" ? "checked" : ""}></td>
+                <td data-label="받는 사람">${safe(row.email)}</td>
+                <td data-label="보낼 메일">${safe(friendlyTemplate(row.template))}</td>
+                <td data-label="단계">${safe(stageLabelForRow(row))}</td>
+                <td data-label="상세">${safe(friendlyDetail(row.detail || ""))}</td>
               </tr>`).join("")}
           </tbody>
-        </table>`;
+        </table></div>`;
       document.getElementById("approveAllBtn").addEventListener("click", () => setApprovalChecks(true));
       document.getElementById("clearApprovalBtn").addEventListener("click", () => setApprovalChecks(false));
       document.getElementById("saveApprovalBtn").addEventListener("click", saveApproval);
       updateWorkflowStatus();
+    }
+
+    function approvedCount() {
+      return approvalRows.filter(row => row.approved === "yes").length;
+    }
+
+    function previewSentCount() {
+      return previewRows.filter(row => row.status === "sent").length;
+    }
+
+    function googleStepDone(id) {
+      const steps = googleSetup && Array.isArray(googleSetup.steps) ? googleSetup.steps : [];
+      const step = steps.find(item => item.id === id);
+      return Boolean(step && step.done);
+    }
+
+    function gmailActionHtml(number, title, detail, buttonId, buttonText, done, isNext) {
+      return `
+        <div class="gmail-stage ${done ? "done" : ""} ${isNext ? "next" : ""}">
+          <span class="work-number">${number}</span>
+          <div>
+            <strong>${safe(title)}</strong>
+            <span>${safe(detail)}</span>
+          </div>
+          <button type="button" id="${safe(buttonId)}">${safe(buttonText)}</button>
+        </div>`;
     }
 
     function showGmailCompare(counts = {}) {
@@ -2992,15 +2034,30 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       const needsReview = counts.needs_review || 0;
       const pending = counts.pending || 0;
       const ignored = counts.ignored || 0;
+      const approved = approvedCount();
+      const previewSent = previewSentCount();
+      const googleReady = googleStepDone("fetch");
+      const canStart = approved > 0 && previewSent > 0;
+      const nextGmailStep = !googleReady
+        ? 1
+        : !gmailQueuePending
+          ? 2
+          : !gmailUploadedRows
+            ? 3
+            : !gmailRows.length
+              ? 4
+              : 5;
       const summary = `
+        <div class="gmail-flow">
+          ${gmailActionHtml(1, "Google 연결", googleReady ? "비공개 시트를 읽고 쓸 준비가 됐습니다." : "Google 설정과 시트 링크를 먼저 확인합니다.", "connectGoogleInTabBtn", "Google 연결", googleReady, nextGmailStep === 1)}
+          ${gmailActionHtml(2, "발송 준비", gmailQueuePending ? `승인된 ${gmailQueuePending}건을 Gmail 준비 파일에 담았습니다.` : "승인된 고객으로 Gmail 준비 파일을 만듭니다.", "exportGmailInTabBtn", "발송 준비", gmailQueuePending > 0, nextGmailStep === 2 && canStart)}
+          ${gmailActionHtml(3, "시트 업로드", gmailUploadedRows ? `비공개 시트에 ${gmailUploadedRows}건을 올렸습니다.` : "Gmail 준비 파일을 비공개 Google Sheet에 올립니다.", "uploadPrivateGmailInTabBtn", "시트에 올리기", gmailUploadedRows > 0, nextGmailStep === 3)}
+          ${gmailActionHtml(4, "결과 가져오기", gmailRows.length ? "Gmail 발송 결과를 불러왔습니다." : "발송 후 Sheet의 결과를 앱으로 가져옵니다.", "fetchPrivateGmailInTabBtn", "결과 가져오기", gmailRows.length > 0, nextGmailStep === 4)}
+          ${gmailActionHtml(5, "결과 반영", matched || needsReview || pending || ignored ? "고객 상태와 Gmail 결과를 비교했습니다." : "성공/실패 결과를 고객 상태에 반영합니다.", "importGmailInTabBtn", "결과 반영", Boolean(matched || needsReview || pending || ignored), nextGmailStep === 5)}
+        </div>
         <div class="message-tools">
-          <button type="button" id="exportGmailInTabBtn">Gmail 발송 준비</button>
-          <button type="button" id="uploadPrivateGmailInTabBtn">비공개 시트에 올리기</button>
-          <button type="button" id="connectGoogleInTabBtn">Google 연결</button>
-          <button type="button" id="fetchPrivateGmailInTabBtn">비공개 시트 가져오기</button>
-          <button type="button" id="fetchGmailInTabBtn">Gmail 시트 가져오기</button>
-          <button type="button" class="primary" id="importGmailInTabBtn">Gmail 결과 반영</button>
-          <button type="button" id="compareGmailInTabBtn">Gmail 결과 확인</button>
+          <button type="button" id="fetchGmailInTabBtn">CSV 링크로 가져오기</button>
+          <button type="button" id="compareGmailInTabBtn">결과 확인</button>
           <span class="file-name">같음 ${matched}건 / 확인 필요 ${needsReview}건 / 대기 ${pending}건 / 제외 ${ignored}건</span>
         </div>`;
 
@@ -3008,20 +2065,20 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
         target.innerHTML = `${googleGuideHtml()}${summary}<p class="note">아직 확인할 Gmail 결과가 없습니다.</p>`;
       } else {
         target.innerHTML = `${googleGuideHtml()}${summary}
-          <table>
+          <div class="table-wrap"><table class="responsive-table">
             <thead><tr><th>확인</th><th>고객</th><th>Gmail 상태</th><th>메일</th><th>현재 단계</th><th>상세</th></tr></thead>
             <tbody>
               ${gmailRows.map(row => `
                 <tr>
-                  <td>${badge(row.status)}</td>
-                  <td>${safe(row.email)}</td>
-                  <td>${safe(row.gmail_status)}</td>
-                  <td>${safe(row.template)}</td>
-                  <td>${safe(row.customer_step)}</td>
-                  <td>${safe(row.detail)}</td>
+                  <td data-label="확인">${badge(row.status)}</td>
+                  <td data-label="고객">${safe(row.email)}</td>
+                  <td data-label="Gmail 상태">${safe(statusLabels[row.gmail_status] || row.gmail_status || "")}</td>
+                  <td data-label="메일">${safe(friendlyTemplate(row.template))}</td>
+                  <td data-label="현재 단계">${safe(friendlyStage(row.customer_step))}</td>
+                  <td data-label="상세">${safe(friendlyDetail(row.detail))}</td>
                 </tr>`).join("")}
             </tbody>
-          </table>`;
+          </table></div>`;
       }
 
       document.getElementById("exportGmailInTabBtn").addEventListener("click", exportGmailQueue);
@@ -3143,15 +2200,30 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       const ready = peopleRows.filter(row => row.status === "ready").length;
       const scheduled = peopleRows.filter(row => row.status === "scheduled").length;
       const skipped = peopleRows.filter(row => row.status === "skipped").length;
-      const approved = approvalRows.filter(row => row.approved === "yes").length;
+      const approved = approvedCount();
       const waiting = approvalRows.length - approved;
-      const previewSent = previewRows.filter(row => row.status === "sent").length;
+      const previewSent = previewSentCount();
       const gmailTotal = Object.values(gmailCounts || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+      const approvalReady = approvalRows.length > 0 && approved > 0;
 
       setText("peopleStepStatus", peopleRows.length ? `보낼 사람 ${ready}명 / 나중 ${scheduled}명 / 제외 ${skipped}명` : "아직 확인 전입니다.");
       setText("flowStepStatus", flowSteps.length ? `${flowSteps.length}개 단계가 준비됐습니다.` : "메일 흐름을 불러오는 중입니다.");
-      setText("approvalStepStatus", approvalRows.length ? `승인 ${approved}건 / 대기 ${waiting}건` : "승인 목록 전입니다.");
-      setText("previewStepStatus", previewRows.length ? `미리보기 ${previewSent}건 완료` : "미리보기 전입니다.");
+      setText(
+        "approvalStepStatus",
+        approvalRows.length
+          ? approved
+            ? `승인 ${approved}건 / 대기 ${waiting}건`
+            : `승인이 필요합니다. 대기 ${waiting}건`
+          : "승인 목록 전입니다."
+      );
+      setText(
+        "previewStepStatus",
+        previewRows.length
+          ? `미리보기 ${previewSent}건 완료`
+          : approvalReady
+            ? "미리보기 전입니다."
+            : "승인 저장 후 만들 수 있습니다."
+      );
       setText(
         "gmailStepStatus",
         gmailTotal
@@ -3160,16 +2232,18 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
             ? `비공개 시트 업로드 ${gmailUploadedRows}건`
           : gmailQueuePending
             ? `Gmail 발송 준비 ${gmailQueuePending}건`
-            : "결과 확인 전입니다."
+            : previewSent
+              ? "Gmail 발송 준비 전입니다."
+              : "승인과 미리보기 후 진행합니다."
       );
 
       const nextId = !peopleRows.length
         ? "workflowPeople"
-        : !approvalRows.length
+        : ready > 0 && !approvalReady
           ? "workflowApproval"
-          : !previewRows.length
+          : ready > 0 && !previewRows.length
             ? "workflowPreview"
-            : !gmailTotal
+            : ready > 0 && !gmailTotal
               ? "workflowGmail"
               : "";
       for (const card of document.querySelectorAll(".work-card")) {
@@ -3182,11 +2256,47 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
         workflowGmail: "다음 작업: Gmail 발송 결과"
       };
       setText("nextStepText", labels[nextId] || "오늘 흐름을 모두 확인했습니다.");
+      applyActionAvailability({ ready, approved, previewSent, gmailTotal });
     }
 
     function setText(id, text) {
       const element = document.getElementById(id);
       if (element) element.textContent = text;
+    }
+
+    function setActionDisabled(ids, disabled, reason = "") {
+      if (isBusy) return;
+      for (const id of ids) {
+        const element = document.getElementById(id);
+        if (!element) continue;
+        element.disabled = disabled;
+        element.title = disabled ? reason : "";
+      }
+    }
+
+    function applyActionAvailability({ ready, approved, previewSent, gmailTotal }) {
+      if (isBusy) return;
+      const hasSource = Boolean((document.getElementById("gmail_source")?.value || "").trim());
+      const googleReady = googleStepDone("fetch");
+      const canPrepareApproval = ready > 0;
+      const canPreview = approved > 0;
+      const canExportGmail = approved > 0 && previewSent > 0;
+      const canUploadPrivate = gmailQueuePending > 0 && hasSource && googleReady;
+      const canFetchPrivate = hasSource && googleReady;
+      const canFetchCsv = hasSource;
+      const canImport = gmailRows.length > 0 || gmailTotal > 0;
+      const canCompare = Boolean((document.getElementById("gmail_results")?.value || "").trim());
+
+      setActionDisabled(["prepareApprovalBtn", "prepareApprovalInTabBtn"], !canPrepareApproval, "먼저 명단 확인을 완료하세요.");
+      setActionDisabled(["dryRunBtn"], !canPreview, "발송 승인에서 보낼 고객을 승인하고 저장하세요.");
+      setActionDisabled(["exportGmailBtn", "exportGmailInTabBtn"], !canExportGmail, "승인 저장과 미리보기 완료 후 준비할 수 있습니다.");
+      setActionDisabled(["uploadPrivateGmailBtn", "uploadPrivateGmailInTabBtn"], !canUploadPrivate, "Gmail 준비 파일, 시트 링크, Google 연결이 필요합니다.");
+      setActionDisabled(["fetchPrivateGmailBtn", "fetchPrivateGmailInTabBtn"], !canFetchPrivate, "비공개 시트 링크와 Google 연결이 필요합니다.");
+      setActionDisabled(["fetchGmailBtn", "fetchGmailInTabBtn"], !canFetchCsv, "Gmail 시트 링크를 입력하세요.");
+      setActionDisabled(["importGmailBtn", "importGmailInTabBtn"], !canImport, "먼저 Gmail 결과를 가져오거나 확인하세요.");
+      setActionDisabled(["compareGmailBtn", "compareGmailInTabBtn"], !canCompare, "Gmail 준비/결과 파일 경로가 필요합니다.");
+      setActionDisabled(["connectGoogleBtn", "connectGoogleInTabBtn", "connectGoogleGuideBtn"], false);
+      setActionDisabled(["saveFlowBtn", "refreshBtn", "planBtn"], false);
     }
 
     async function plan() {
@@ -3211,6 +2321,12 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     }
 
     async function preview() {
+      if (approvedCount() === 0) {
+        note("먼저 발송 승인에서 보낼 고객을 승인하고 저장하세요.");
+        switchTab("approval");
+        updateWorkflowStatus();
+        return;
+      }
       busy(true);
       note("메일 미리보기를 만드는 중입니다...");
       try {
@@ -3263,6 +2379,12 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     }
 
     async function prepareApproval() {
+      if (!peopleRows.some(row => row.status === "ready")) {
+        note("오늘 보낼 사람이 없습니다. 먼저 명단 확인 결과를 확인하세요.");
+        switchTab("people");
+        updateWorkflowStatus();
+        return;
+      }
       busy(true);
       note("오늘 보낼 메일 승인 목록을 만드는 중입니다...");
       try {
@@ -3302,6 +2424,12 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     }
 
     async function exportGmailQueue() {
+      if (approvedCount() === 0 || previewSentCount() === 0) {
+        note("Gmail 발송 준비는 승인 저장과 미리보기 완료 후 진행할 수 있습니다.");
+        switchTab("gmail");
+        updateWorkflowStatus();
+        return;
+      }
       busy(true);
       note("Gmail 발송 준비 파일을 만드는 중입니다...");
       try {
@@ -3322,6 +2450,12 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     }
 
     async function uploadPrivateGmailQueue() {
+      if (!gmailQueuePending || !googleStepDone("fetch")) {
+        note("먼저 Gmail 발송 준비를 완료하고 Google 연결 상태를 확인하세요.");
+        switchTab("gmail");
+        updateWorkflowStatus();
+        return;
+      }
       busy(true);
       note("Gmail 발송 준비 파일을 비공개 시트에 올리는 중입니다...");
       try {
@@ -3383,6 +2517,12 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     }
 
     async function fetchPrivateGmailResults() {
+      if (!googleStepDone("fetch")) {
+        note("비공개 시트를 가져오려면 Google 연결과 시트 링크가 필요합니다.");
+        switchTab("gmail");
+        updateWorkflowStatus();
+        return;
+      }
       busy(true);
       note("비공개 Gmail 시트 결과를 가져오는 중입니다...");
       try {
@@ -3401,6 +2541,12 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     }
 
     async function fetchGmailResults() {
+      if (!(document.getElementById("gmail_source").value || "").trim()) {
+        note("Gmail 시트 링크를 먼저 입력하세요.");
+        switchTab("gmail");
+        updateWorkflowStatus();
+        return;
+      }
       busy(true);
       note("Gmail 시트 결과를 가져오는 중입니다...");
       try {
@@ -3419,6 +2565,12 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
     }
 
     async function importGmailResults() {
+      if (!gmailRows.length) {
+        note("먼저 Gmail 결과를 가져오거나 결과 확인을 실행하세요.");
+        switchTab("gmail");
+        updateWorkflowStatus();
+        return;
+      }
       busy(true);
       note("Gmail 발송 결과를 고객 상태에 반영하는 중입니다...");
       try {
@@ -3523,21 +2675,26 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
         .replaceAll("'", "&#039;");
     }
 
+    function bindClick(id, handler) {
+      const element = document.getElementById(id);
+      if (element) element.addEventListener("click", handler);
+    }
+
     async function boot() {
       const defaults = await api("/api/defaults");
       for (const key of fields) document.getElementById(key).value = defaults[key] || "";
-      document.getElementById("planBtn").addEventListener("click", plan);
-      document.getElementById("dryRunBtn").addEventListener("click", preview);
-      document.getElementById("prepareApprovalBtn").addEventListener("click", prepareApproval);
-      document.getElementById("exportGmailBtn").addEventListener("click", exportGmailQueue);
-      document.getElementById("uploadPrivateGmailBtn").addEventListener("click", uploadPrivateGmailQueue);
-      document.getElementById("connectGoogleBtn").addEventListener("click", connectGoogle);
-      document.getElementById("fetchPrivateGmailBtn").addEventListener("click", fetchPrivateGmailResults);
-      document.getElementById("fetchGmailBtn").addEventListener("click", fetchGmailResults);
-      document.getElementById("importGmailBtn").addEventListener("click", importGmailResults);
-      document.getElementById("compareGmailBtn").addEventListener("click", () => compareGmailResults(true));
-      document.getElementById("saveFlowBtn").addEventListener("click", saveFlow);
-      document.getElementById("refreshBtn").addEventListener("click", refreshAll);
+      bindClick("planBtn", plan);
+      bindClick("dryRunBtn", preview);
+      bindClick("prepareApprovalBtn", prepareApproval);
+      bindClick("exportGmailBtn", exportGmailQueue);
+      bindClick("uploadPrivateGmailBtn", uploadPrivateGmailQueue);
+      bindClick("connectGoogleBtn", connectGoogle);
+      bindClick("fetchPrivateGmailBtn", fetchPrivateGmailResults);
+      bindClick("fetchGmailBtn", fetchGmailResults);
+      bindClick("importGmailBtn", importGmailResults);
+      bindClick("compareGmailBtn", () => compareGmailResults(true));
+      bindClick("saveFlowBtn", saveFlow);
+      bindClick("refreshBtn", refreshAll);
       document.getElementById("funnel_config").addEventListener("change", loadFlow);
       for (const button of document.querySelectorAll(".tab")) {
         button.addEventListener("click", () => switchTab(button.dataset.tab));
