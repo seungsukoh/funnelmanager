@@ -158,6 +158,17 @@ CREATE TABLE IF NOT EXISTS contacts (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS form_responses (
+  idempotency_key TEXT PRIMARY KEY,
+  source TEXT NOT NULL DEFAULT 'google_forms',
+  external_response_id TEXT NOT NULL DEFAULT '',
+  email TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL DEFAULT '',
+  fields_json TEXT NOT NULL DEFAULT '{}',
+  submitted_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS funnel_steps (
   id TEXT PRIMARY KEY,
   sort_order INTEGER NOT NULL DEFAULT 0,
@@ -452,6 +463,186 @@ export async function saveContactRows(env, rows) {
     });
   }
   return imported;
+}
+
+export async function saveFormResponse(env, payload) {
+  if (!(await ensureDatabase(env))) {
+    throw new Error("Cloudflare D1 binding DB is required for form webhooks.");
+  }
+
+  const source = String(payload?.source || "google_forms").trim() || "google_forms";
+  const externalResponseId = String(payload?.external_response_id || "").trim();
+  const submittedAt = String(payload?.submitted_at || new Date().toISOString()).trim();
+  const fields = normalizeFormFields(payload?.fields);
+  const idempotencyKey = await formResponseKey(source, externalResponseId, fields);
+
+  const existing = await env.DB.prepare("SELECT email, name FROM form_responses WHERE idempotency_key = ?")
+    .bind(idempotencyKey)
+    .first();
+  if (existing) {
+    return {
+      duplicate: true,
+      imported: false,
+      idempotency_key: idempotencyKey,
+      contact: {
+        email: existing.email || "",
+        name: existing.name || ""
+      }
+    };
+  }
+
+  const email = extractEmail(fields);
+  if (!email) {
+    await insertFormResponse(env, {
+      idempotencyKey,
+      source,
+      externalResponseId,
+      email: "",
+      name: "",
+      fields,
+      submittedAt
+    });
+    return {
+      duplicate: false,
+      imported: false,
+      idempotency_key: idempotencyKey,
+      error: "Form response did not include a valid email address."
+    };
+  }
+
+  const name = extractName(fields, email);
+  const defaultStep = (await flowStepsFor(env))[0] || {};
+  const template = String(defaultStep.template || "").trim();
+  const campaignStep = String(defaultStep.stage_label || "").trim();
+  const contact = {
+    status: "ready",
+    email,
+    template,
+    rule: "Google Forms 응답",
+    campaign_step: campaignStep,
+    next_send_at: "",
+    detail: name ? `${name} 고객` : "Google Forms에서 받은 고객"
+  };
+
+  await insertFormResponse(env, {
+    idempotencyKey,
+    source,
+    externalResponseId,
+    email,
+    name,
+    fields,
+    submittedAt
+  });
+
+  await env.DB.prepare(
+    `INSERT INTO contacts
+      (email, name, status, template, rule, campaign_step, next_send_at, detail, data_json, updated_at)
+     VALUES (?, ?, 'ready', ?, 'Google Forms 응답', ?, '', ?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(email) DO UPDATE SET
+       name = excluded.name,
+       status = 'ready',
+       template = excluded.template,
+       rule = excluded.rule,
+       campaign_step = excluded.campaign_step,
+       next_send_at = '',
+       detail = excluded.detail,
+       data_json = excluded.data_json,
+       updated_at = CURRENT_TIMESTAMP`
+  )
+    .bind(email, name, template, campaignStep, contact.detail, JSON.stringify({ source, external_response_id: externalResponseId, submitted_at: submittedAt, fields }))
+    .run();
+
+  return {
+    duplicate: false,
+    imported: true,
+    idempotency_key: idempotencyKey,
+    contact
+  };
+}
+
+async function insertFormResponse(env, row) {
+  await env.DB.prepare(
+    `INSERT INTO form_responses
+      (idempotency_key, source, external_response_id, email, name, fields_json, submitted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      row.idempotencyKey,
+      row.source,
+      row.externalResponseId,
+      row.email,
+      row.name,
+      JSON.stringify(row.fields),
+      row.submittedAt
+    )
+    .run();
+}
+
+function normalizeFormFields(rawFields) {
+  if (!rawFields || typeof rawFields !== "object" || Array.isArray(rawFields)) return {};
+  return Object.fromEntries(
+    Object.entries(rawFields).map(([key, value]) => [
+      String(key || "").trim(),
+      Array.isArray(value)
+        ? value.map((item) => String(item || "").trim()).filter(Boolean).join(", ")
+        : value && typeof value === "object"
+          ? JSON.stringify(value)
+          : String(value || "").trim()
+    ]).filter(([key]) => key)
+  );
+}
+
+async function formResponseKey(source, externalResponseId, fields) {
+  const stableValue = externalResponseId || JSON.stringify(Object.keys(fields).sort().map((key) => [key, fields[key]]));
+  return `${source}:${await sha256Hex(stableValue)}`;
+}
+
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(value || "")));
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function extractEmail(fields) {
+  const preferred = Object.entries(fields).find(([key, value]) => {
+    const normalizedKey = normalizeFieldName(key);
+    return (
+      normalizedKey.includes("email") ||
+      normalizedKey.includes("e-mail") ||
+      normalizedKey.includes("mail") ||
+      normalizedKey.includes("이메일") ||
+      normalizedKey.includes("메일")
+    ) && emailFromText(value);
+  });
+  if (preferred) return emailFromText(preferred[1]);
+
+  for (const value of Object.values(fields)) {
+    const email = emailFromText(value);
+    if (email) return email;
+  }
+  return "";
+}
+
+function emailFromText(value) {
+  const match = String(value || "").match(/[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+/);
+  return match ? match[0].toLowerCase() : "";
+}
+
+function extractName(fields, email) {
+  const preferred = Object.entries(fields).find(([key, value]) => {
+    const normalizedKey = normalizeFieldName(key);
+    return (
+      normalizedKey === "name" ||
+      normalizedKey.includes("full name") ||
+      normalizedKey.includes("이름") ||
+      normalizedKey.includes("성명") ||
+      normalizedKey.includes("성함")
+    ) && String(value || "").trim();
+  });
+  return preferred ? String(preferred[1] || "").trim() : displayName(email);
+}
+
+function normalizeFieldName(value) {
+  return String(value || "").trim().toLowerCase();
 }
 
 export async function deleteContactRows(env, { emails = [], all = false } = {}) {

@@ -72,6 +72,16 @@ Google Forms는 응답을 Google Sheets에 연결한 뒤 Apps Script `onFormSubm
 4. `WEBHOOK_URL`과 `WEBHOOK_TOKEN`을 수정한다.
 5. 설치형 트리거에서 `onFormSubmit`을 폼 제출 시 실행하도록 설정한다.
 
+Cloudflare Pages에 배포한 경우 webhook 주소는 다음 형식이다.
+
+```text
+https://<cloudflare-pages-domain>/webhooks/form-response
+```
+
+Cloudflare Pages 프로젝트에는 Secret으로 `FORM_WEBHOOK_TOKEN`을 추가한다. Apps Script의
+`WEBHOOK_TOKEN`은 이 값과 같아야 한다. D1 바인딩 이름은 `DB`여야 하며, webhook은 폼 응답을
+`form_responses`에 중복 방지 키로 저장한 뒤 `contacts` 명단에 반영한다.
+
 ### Google Sheets CSV 증분 동기화
 
 Apps Script 없이 Google Sheets 응답 시트를 CSV로 게시하거나 export CSV URL을 사용할 수도 있다.

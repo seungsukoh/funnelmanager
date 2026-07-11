@@ -18,6 +18,17 @@ CREATE TABLE IF NOT EXISTS contacts (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS form_responses (
+  idempotency_key TEXT PRIMARY KEY,
+  source TEXT NOT NULL DEFAULT 'google_forms',
+  external_response_id TEXT NOT NULL DEFAULT '',
+  email TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL DEFAULT '',
+  fields_json TEXT NOT NULL DEFAULT '{}',
+  submitted_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS funnel_steps (
   id TEXT PRIMARY KEY,
   sort_order INTEGER NOT NULL DEFAULT 0,
