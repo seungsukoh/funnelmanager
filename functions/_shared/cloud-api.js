@@ -20,6 +20,9 @@ export const DEFAULTS = {
   cloud_notice: CLOUD_NOTICE
 };
 
+const FORM_AUTO_SEND_SETTINGS_KEY = "form_auto_send_settings";
+const FORM_AUTO_SEND_COUNT_PREFIX = "form_auto_send_count:";
+
 export const QUEUE_ROWS = [
   {
     status: "ready",
@@ -511,18 +514,13 @@ export async function saveFormResponse(env, payload) {
   }
 
   const name = extractName(fields, email);
-  const defaultStep = (await flowStepsFor(env))[0] || {};
-  const template = String(defaultStep.template || "").trim();
-  const campaignStep = String(defaultStep.stage_label || "").trim();
-  const contact = {
-    status: "ready",
-    email,
-    template,
-    rule: "Google Forms 응답",
-    campaign_step: campaignStep,
-    next_send_at: "",
-    detail: name ? `${name} 고객` : "Google Forms에서 받은 고객"
-  };
+  const existingContact = await env.DB.prepare(
+    `SELECT status, email, name, template, rule, campaign_step, next_send_at, detail
+     FROM contacts
+     WHERE email = ?`
+  )
+    .bind(email)
+    .first();
 
   await insertFormResponse(env, {
     idempotencyKey,
@@ -533,6 +531,43 @@ export async function saveFormResponse(env, payload) {
     fields,
     submittedAt
   });
+
+  if (existingContact) {
+    await env.DB.prepare(
+      `UPDATE contacts
+       SET name = COALESCE(NULLIF(?, ''), name),
+           data_json = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE email = ?`
+    )
+      .bind(name, JSON.stringify({ source, external_response_id: externalResponseId, submitted_at: submittedAt, fields }), email)
+      .run();
+
+    return {
+      duplicate: false,
+      imported: true,
+      existing_contact: true,
+      idempotency_key: idempotencyKey,
+      contact: {
+        ...existingContact,
+        name: name || existingContact.name || ""
+      }
+    };
+  }
+
+  const defaultStep = (await flowStepsFor(env))[0] || {};
+  const template = String(defaultStep.template || "").trim();
+  const campaignStep = String(defaultStep.stage_label || "").trim();
+  const contact = {
+    status: "ready",
+    email,
+    name,
+    template,
+    rule: "Google Forms 응답",
+    campaign_step: campaignStep,
+    next_send_at: "",
+    detail: name ? `${name} 고객` : "Google Forms에서 받은 고객"
+  };
 
   await env.DB.prepare(
     `INSERT INTO contacts
@@ -558,6 +593,65 @@ export async function saveFormResponse(env, payload) {
     idempotency_key: idempotencyKey,
     contact
   };
+}
+
+export async function formAutoSendSettings(env) {
+  const databaseReady = await ensureDatabase(env);
+  const stored = databaseReady ? await getMetaJson(env, FORM_AUTO_SEND_SETTINGS_KEY) : null;
+  const date = todayKst();
+  const dailyLimit = normalizeDailyLimit(stored?.daily_limit ?? env.FORM_AUTO_SEND_DAILY_LIMIT ?? 20);
+  const sentToday = databaseReady ? Number(await getMeta(env, `${FORM_AUTO_SEND_COUNT_PREFIX}${date}`) || 0) : 0;
+  return {
+    enabled: Boolean(stored?.enabled),
+    daily_limit: dailyLimit,
+    sent_today: sentToday,
+    remaining_today: Math.max(dailyLimit - sentToday, 0),
+    date
+  };
+}
+
+export async function saveFormAutoSendSettings(env, settings) {
+  if (!(await ensureDatabase(env))) {
+    throw new Error("Cloudflare D1 binding DB is required for form auto-send settings.");
+  }
+  const normalized = {
+    enabled: parseBoolean(settings?.enabled),
+    daily_limit: normalizeDailyLimit(settings?.daily_limit ?? 20)
+  };
+  await setMetaJson(env, FORM_AUTO_SEND_SETTINGS_KEY, normalized);
+  return formAutoSendSettings(env);
+}
+
+export async function checkFormAutoSendAllowed(env) {
+  const settings = await formAutoSendSettings(env);
+  if (!settings.enabled) {
+    return { allowed: false, reason: "폼 자동 발송이 꺼져 있습니다.", settings };
+  }
+  if (settings.sent_today >= settings.daily_limit) {
+    return { allowed: false, reason: `오늘 자동 발송 제한 ${settings.daily_limit}건에 도달했습니다.`, settings };
+  }
+  return { allowed: true, reason: "", settings };
+}
+
+export async function recordFormAutoSend(env) {
+  if (!(await ensureDatabase(env))) return formAutoSendSettings(env);
+  const date = todayKst();
+  const key = `${FORM_AUTO_SEND_COUNT_PREFIX}${date}`;
+  const current = Number(await getMeta(env, key) || 0);
+  await setMeta(env, key, String(current + 1));
+  return formAutoSendSettings(env);
+}
+
+function parseBoolean(value) {
+  if (value === true) return true;
+  const text = String(value || "").trim().toLowerCase();
+  return ["1", "true", "yes", "on", "enabled"].includes(text);
+}
+
+function normalizeDailyLimit(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 20;
+  return Math.min(Math.max(Math.floor(number), 1), 500);
 }
 
 async function insertFormResponse(env, row) {

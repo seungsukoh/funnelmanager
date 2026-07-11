@@ -80,6 +80,13 @@ const state = {
   googleSteps: [],
   googleStatusError: "",
   gmailTestResult: null,
+  formAutoSend: {
+    enabled: false,
+    daily_limit: 20,
+    sent_today: 0,
+    remaining_today: 20,
+    date: ""
+  },
   settingsOpen: false,
   advancedSettingsOpen: false,
   contactImport: null,
@@ -265,12 +272,14 @@ function renderStatusMonitor(nextId) {
   const gmailSend = googleStep("gmail_send");
   const approved = Number(state.approvalCounts.approved || 0);
   const needsReview = Number(state.gmailCounts.needs_review || 0);
+  const autoSend = state.formAutoSend;
 
   return `
     <section class="status-monitor" aria-label="운영 상태">
       ${renderMonitorItem("저장소", database?.done ? "연결됨" : "확인 필요", database?.detail || "D1 상태를 확인하세요.", database?.done ? "ok" : "warn")}
       ${renderMonitorItem("Google", connect?.done ? "연결됨" : secret?.done ? "승인 필요" : "설정 필요", connect?.detail || secret?.detail || "Google 연결 상태를 확인하세요.", connect?.done ? "ok" : "warn")}
       ${renderMonitorItem("테스트 발송", state.gmailTestResult?.sent ? "완료" : gmailSend?.done ? "준비됨" : "대기", state.gmailTestResult?.sent ? `${state.gmailTestResult.recipient} 발송` : gmailSend?.detail || "테스트 발송 전", state.gmailTestResult?.sent || gmailSend?.done ? "ok" : "neutral")}
+      ${renderMonitorItem("폼 자동 발송", autoSend.enabled ? "켜짐" : "꺼짐", autoSend.enabled ? `오늘 ${autoSend.sent_today || 0}/${autoSend.daily_limit || 20}건 발송` : "폼 응답은 명단에만 등록됩니다.", autoSend.enabled ? "warn" : "neutral")}
       ${renderMonitorItem(
         "불러온 명단",
         state.contactImportDraft ? "확인 중" : state.queueRows.length ? `${state.queueRows.length}건` : "없음",
@@ -331,6 +340,7 @@ function renderSettingsPanel() {
             ["test_email", "테스트 수신자"]
           ])}
         </section>
+        ${renderFormAutoSendSettings()}
         <section class="settings-group">
           <h3>명단과 기록</h3>
           ${renderConfigGroup([
@@ -362,6 +372,24 @@ function renderSettingsPanel() {
             </section>
           </div>` : ""}
       </div>
+    </section>`;
+}
+
+function renderFormAutoSendSettings() {
+  const settings = state.formAutoSend;
+  return `
+    <section class="settings-group">
+      <h3>폼 자동 발송</h3>
+      <label class="checkbox-field">
+        <input type="checkbox" data-form-auto-send-enabled ${settings.enabled ? "checked" : ""} />
+        <span>새 Google Form 응답이 들어오면 첫 단계 메일을 바로 발송</span>
+      </label>
+      <label class="field">
+        <span>하루 자동 발송 제한</span>
+        <input type="number" min="1" max="500" data-form-auto-send-limit value="${safe(settings.daily_limit || 20)}" />
+      </label>
+      <p class="settings-note">오늘 ${Number(settings.sent_today || 0)}건 발송했습니다. 자동 발송 전에 단계별 메일 제목/본문과 Google 연결 상태를 확인하세요.</p>
+      <button type="button" data-action="save-form-auto-send">자동 발송 설정 저장</button>
     </section>`;
 }
 
@@ -932,6 +960,21 @@ function bindEvents() {
     });
   }
 
+  const autoSendEnabled = document.querySelector("[data-form-auto-send-enabled]");
+  if (autoSendEnabled) {
+    autoSendEnabled.addEventListener("change", () => {
+      state.formAutoSend.enabled = autoSendEnabled.checked;
+      render();
+    });
+  }
+
+  const autoSendLimit = document.querySelector("[data-form-auto-send-limit]");
+  if (autoSendLimit) {
+    autoSendLimit.addEventListener("input", () => {
+      state.formAutoSend.daily_limit = Number(autoSendLimit.value || 20);
+    });
+  }
+
   for (const input of document.querySelectorAll("[data-flow-index]")) {
     input.addEventListener("input", () => updateFlowField(input));
     input.addEventListener("change", () => updateFlowField(input));
@@ -1113,6 +1156,7 @@ async function runAction(action) {
     preview,
     "google-status": () => googleStatus({ activate: !state.settingsOpen }),
     "connect-google": () => connectGoogle({ activate: !state.settingsOpen }),
+    "save-form-auto-send": saveFormAutoSend,
     "export-gmail": exportGmail,
     "upload-gmail": uploadGmail,
     "fetch-private-gmail": fetchPrivateGmail,
@@ -1149,6 +1193,43 @@ async function closeSettings() {
 async function toggleAdvancedSettings() {
   state.advancedSettingsOpen = !state.advancedSettingsOpen;
   render();
+}
+
+async function loadFormAutoSend() {
+  try {
+    const data = await api("/api/forms/auto-send");
+    state.formAutoSend = {
+      ...state.formAutoSend,
+      ...(data.settings || {})
+    };
+  } catch {
+    state.formAutoSend = {
+      enabled: false,
+      daily_limit: 20,
+      sent_today: 0,
+      remaining_today: 20,
+      date: ""
+    };
+  }
+}
+
+async function saveFormAutoSend() {
+  await withBusy("폼 자동 발송 설정을 저장하는 중입니다.", async () => {
+    const enabled = Boolean(document.querySelector("[data-form-auto-send-enabled]")?.checked);
+    const dailyLimit = Number(document.querySelector("[data-form-auto-send-limit]")?.value || state.formAutoSend.daily_limit || 20);
+    const data = await api("/api/forms/auto-send", {
+      method: "POST",
+      body: JSON.stringify({
+        enabled,
+        daily_limit: dailyLimit
+      })
+    });
+    state.formAutoSend = {
+      ...state.formAutoSend,
+      ...(data.settings || {})
+    };
+    setNotice(messageFrom(data, "폼 자동 발송 설정을 저장했습니다."), "success");
+  });
 }
 
 async function withBusy(message, task) {
@@ -1923,6 +2004,7 @@ async function refreshAll() {
     }
     await loadFlow();
     await googleStatus({ activate: false });
+    await loadFormAutoSend();
     state.activeTab = previousTab;
     setNotice("현재 상태를 확인했습니다.", "success");
   });
@@ -1935,7 +2017,7 @@ async function boot() {
     if (state.backend.mode !== "cloud_preview") {
       state.backend = { connected: true, error: "", mode: "local", message: "" };
     }
-    await Promise.allSettled([loadFlow(), googleStatus({ activate: false })]);
+    await Promise.allSettled([loadFlow(), googleStatus({ activate: false }), loadFormAutoSend()]);
     state.activeTab = "people";
     setNotice("");
   } catch (error) {

@@ -1,4 +1,13 @@
-import { approvalRowsFor, flowStepsFor, getMetaJson, hasDatabase, logGmailSend, saveGmailRows, setMetaJson } from "./cloud-api.js";
+import {
+  applyGmailResultsToContacts,
+  approvalRowsFor,
+  flowStepsFor,
+  getMetaJson,
+  hasDatabase,
+  logGmailSend,
+  saveGmailRows,
+  setMetaJson
+} from "./cloud-api.js";
 
 export const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
@@ -312,6 +321,70 @@ export async function sendTestEmail(env, { to, subject, textBody }) {
     textBody ||
     "Funnel Manager Gmail API 테스트 메일입니다.\n\n이 메일은 테스트 수신자 1명에게만 발송됐습니다.\n승인 명단 전체 발송 기능은 아직 열려 있지 않습니다.";
 
+  return sendGmailMessage(env, {
+    to: recipient,
+    subject: safeSubject,
+    textBody: safeBody,
+    mode: "test"
+  });
+}
+
+export async function sendWorkflowEmail(env, { contact, fields = {}, mode = "form_auto" }) {
+  const recipient = normalizeEmail(contact?.email);
+  const steps = await flowStepsFor(env);
+  const step = steps.find((candidate) => candidate.template === contact?.template) || steps[0];
+  if (!step?.template) throw new Error("자동 발송할 메일 단계가 없습니다. 단계별 메일을 먼저 저장하세요.");
+
+  const template = step.template;
+  await assertNotSentBefore(env, recipient, template);
+
+  const context = templateContext(contact, fields);
+  const subject = sanitizeHeader(renderTemplate(step.subject, context));
+  const textBody = renderTemplate(step.text_body, context);
+  if (!subject || !textBody.trim()) {
+    throw new Error("자동 발송할 메일 제목과 본문을 먼저 입력하세요.");
+  }
+
+  try {
+    const result = await sendGmailMessage(env, {
+      to: recipient,
+      subject,
+      textBody,
+      mode
+    });
+    await saveGmailRows(env, [{
+      email: recipient,
+      template,
+      review_status: "matched",
+      gmail_status: "sent",
+      lead_status: "진행중",
+      detail: result.sent_at
+    }]);
+    const contact_summary = await applyGmailResultsToContacts(env);
+    return {
+      ...result,
+      template,
+      contact_summary
+    };
+  } catch (error) {
+    await saveGmailRows(env, [{
+      email: recipient,
+      template,
+      review_status: "needs_review",
+      gmail_status: "failed",
+      lead_status: "확인필요",
+      detail: error.message || "Gmail 발송 실패"
+    }]);
+    await applyGmailResultsToContacts(env);
+    throw error;
+  }
+}
+
+async function sendGmailMessage(env, { to, subject, textBody, mode }) {
+  const recipient = normalizeEmail(to);
+  const safeSubject = sanitizeHeader(subject || "");
+  const safeBody = String(textBody || "");
+
   try {
     const token = await accessToken(env);
     const raw = base64UrlEncode(
@@ -338,10 +411,11 @@ export async function sendTestEmail(env, { to, subject, textBody }) {
     if (!response.ok) {
       throw new Error(payload.error?.message || `Gmail API ${response.status}`);
     }
+    const sentAt = new Date().toISOString();
     const logError = await safeLogGmailSend(env, {
       recipient,
       subject: safeSubject,
-      mode: "test",
+      mode,
       status: "sent",
       message_id: payload.id || ""
     });
@@ -350,18 +424,64 @@ export async function sendTestEmail(env, { to, subject, textBody }) {
       recipient,
       subject: safeSubject,
       message_id: payload.id || "",
+      sent_at: sentAt,
       log_error: logError
     };
   } catch (error) {
     await safeLogGmailSend(env, {
       recipient,
       subject: safeSubject,
-      mode: "test",
+      mode,
       status: "failed",
-      error: error.message || "Gmail test send failed"
+      error: error.message || "Gmail send failed"
     });
     throw error;
   }
+}
+
+async function assertNotSentBefore(env, email, template) {
+  if (!hasDatabase(env)) return;
+  const row = await env.DB.prepare(
+    `SELECT gmail_status, review_status
+     FROM gmail_results
+     WHERE email = ? AND template = ?`
+  )
+    .bind(email, template)
+    .first();
+  const gmailStatus = String(row?.gmail_status || "").toLowerCase();
+  const reviewStatus = String(row?.review_status || "").toLowerCase();
+  if (gmailStatus === "sent" || reviewStatus === "matched") {
+    throw new Error("이미 같은 메일을 발송한 고객입니다.");
+  }
+}
+
+function templateContext(contact, fields) {
+  const context = {};
+  for (const [key, value] of Object.entries(fields || {})) {
+    context[String(key || "").trim()] = String(value || "");
+  }
+  const email = String(contact?.email || "");
+  const name = String(contact?.name || context["이름"] || context.name || email.split("@")[0] || "");
+  return {
+    ...context,
+    email,
+    Email: email,
+    이메일: email,
+    메일: email,
+    name,
+    Name: name,
+    이름: name,
+    성명: name,
+    template: String(contact?.template || ""),
+    campaign_step: String(contact?.campaign_step || "")
+  };
+}
+
+function renderTemplate(value, context) {
+  return String(value || "").replace(/{{\s*([^}]+?)\s*}}/g, (_, key) => {
+    const cleanKey = String(key || "").trim();
+    return context[cleanKey] ?? "";
+  });
 }
 
 async function safeLogGmailSend(env, row) {
