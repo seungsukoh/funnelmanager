@@ -4,9 +4,7 @@ export async function onRequestGet({ env }) {
   const settings = await formAutoSendSettings(env);
   return json({
     settings,
-    message: settings.enabled
-      ? `폼 자동 발송이 켜져 있습니다. 오늘 ${settings.sent_today}/${settings.daily_limit}건을 발송했습니다.`
-      : "폼 자동 발송이 꺼져 있습니다. 폼 응답은 명단에만 등록됩니다."
+    message: autoSendMessage(settings)
   }, 200, env);
 }
 
@@ -15,8 +13,16 @@ export async function onRequestPost({ request, env }) {
   const settings = await saveFormAutoSendSettings(env, body);
   return json({
     settings,
-    message: settings.enabled
-      ? `폼 자동 발송을 켰습니다. 일일 제한은 ${settings.daily_limit}건입니다.`
-      : "폼 자동 발송을 껐습니다. 폼 응답은 명단에만 등록됩니다."
+    message: autoSendMessage(settings)
   }, 200, env);
+}
+
+function autoSendMessage(settings) {
+  const first = settings.enabled
+    ? `첫 메일 자동 발송 켜짐: 오늘 ${settings.sent_today}/${settings.daily_limit}건`
+    : "첫 메일 자동 발송 꺼짐";
+  const followup = settings.followups_enabled
+    ? `후속 자동 발송 켜짐: 오늘 ${settings.followup_sent_today}/${settings.followup_daily_limit}건`
+    : "후속 자동 발송 꺼짐";
+  return `${first}. ${followup}.`;
 }

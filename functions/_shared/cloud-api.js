@@ -22,6 +22,7 @@ export const DEFAULTS = {
 
 const FORM_AUTO_SEND_SETTINGS_KEY = "form_auto_send_settings";
 const FORM_AUTO_SEND_COUNT_PREFIX = "form_auto_send_count:";
+const FOLLOWUP_AUTO_SEND_COUNT_PREFIX = "followup_auto_send_count:";
 
 export const QUEUE_ROWS = [
   {
@@ -600,12 +601,18 @@ export async function formAutoSendSettings(env) {
   const stored = databaseReady ? await getMetaJson(env, FORM_AUTO_SEND_SETTINGS_KEY) : null;
   const date = todayKst();
   const dailyLimit = normalizeDailyLimit(stored?.daily_limit ?? env.FORM_AUTO_SEND_DAILY_LIMIT ?? 20);
+  const followupDailyLimit = normalizeDailyLimit(stored?.followup_daily_limit ?? env.FOLLOWUP_AUTO_SEND_DAILY_LIMIT ?? 20);
   const sentToday = databaseReady ? Number(await getMeta(env, `${FORM_AUTO_SEND_COUNT_PREFIX}${date}`) || 0) : 0;
+  const followupSentToday = databaseReady ? Number(await getMeta(env, `${FOLLOWUP_AUTO_SEND_COUNT_PREFIX}${date}`) || 0) : 0;
   return {
     enabled: Boolean(stored?.enabled),
     daily_limit: dailyLimit,
     sent_today: sentToday,
     remaining_today: Math.max(dailyLimit - sentToday, 0),
+    followups_enabled: Boolean(stored?.followups_enabled),
+    followup_daily_limit: followupDailyLimit,
+    followup_sent_today: followupSentToday,
+    followup_remaining_today: Math.max(followupDailyLimit - followupSentToday, 0),
     date
   };
 }
@@ -616,7 +623,9 @@ export async function saveFormAutoSendSettings(env, settings) {
   }
   const normalized = {
     enabled: parseBoolean(settings?.enabled),
-    daily_limit: normalizeDailyLimit(settings?.daily_limit ?? 20)
+    daily_limit: normalizeDailyLimit(settings?.daily_limit ?? 20),
+    followups_enabled: parseBoolean(settings?.followups_enabled),
+    followup_daily_limit: normalizeDailyLimit(settings?.followup_daily_limit ?? 20)
   };
   await setMetaJson(env, FORM_AUTO_SEND_SETTINGS_KEY, normalized);
   return formAutoSendSettings(env);
@@ -640,6 +649,44 @@ export async function recordFormAutoSend(env) {
   const current = Number(await getMeta(env, key) || 0);
   await setMeta(env, key, String(current + 1));
   return formAutoSendSettings(env);
+}
+
+export async function checkFollowupAutoSendAllowed(env) {
+  const settings = await formAutoSendSettings(env);
+  if (!settings.followups_enabled) {
+    return { allowed: false, reason: "후속 자동 발송이 꺼져 있습니다.", settings };
+  }
+  if (settings.followup_sent_today >= settings.followup_daily_limit) {
+    return { allowed: false, reason: `오늘 후속 자동 발송 제한 ${settings.followup_daily_limit}건에 도달했습니다.`, settings };
+  }
+  return { allowed: true, reason: "", settings };
+}
+
+export async function recordFollowupAutoSend(env) {
+  if (!(await ensureDatabase(env))) return formAutoSendSettings(env);
+  const date = todayKst();
+  const key = `${FOLLOWUP_AUTO_SEND_COUNT_PREFIX}${date}`;
+  const current = Number(await getMeta(env, key) || 0);
+  await setMeta(env, key, String(current + 1));
+  return formAutoSendSettings(env);
+}
+
+export async function dueFollowupContacts(env, limit = 20) {
+  if (!(await ensureDatabase(env))) return [];
+  const rowLimit = Math.min(Math.max(Number(limit) || 20, 1), 100);
+  const today = todayKst();
+  const { results = [] } = await env.DB.prepare(
+    `SELECT email, name, status, template, rule, campaign_step, next_send_at, detail, data_json
+     FROM contacts
+     WHERE next_send_at != ''
+       AND substr(next_send_at, 1, 10) <= ?
+       AND status IN ('scheduled', 'ready')
+     ORDER BY next_send_at ASC, updated_at ASC, email ASC
+     LIMIT ?`
+  )
+    .bind(today, rowLimit)
+    .all();
+  return results;
 }
 
 function parseBoolean(value) {

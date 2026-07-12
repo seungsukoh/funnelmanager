@@ -1,10 +1,14 @@
 import {
   applyGmailResultsToContacts,
   approvalRowsFor,
+  checkFollowupAutoSendAllowed,
+  dueFollowupContacts,
+  formAutoSendSettings,
   flowStepsFor,
   getMetaJson,
   hasDatabase,
   logGmailSend,
+  recordFollowupAutoSend,
   saveGmailRows,
   setMetaJson
 } from "./cloud-api.js";
@@ -380,6 +384,84 @@ export async function sendWorkflowEmail(env, { contact, fields = {}, mode = "for
   }
 }
 
+export async function sendDueFollowupEmails(env, { limit = 20 } = {}) {
+  const allowed = await checkFollowupAutoSendAllowed(env);
+  if (!allowed.allowed) {
+    return {
+      enabled: Boolean(allowed.settings.followups_enabled),
+      attempted: false,
+      sent: 0,
+      failed: 0,
+      skipped: 0,
+      reason: allowed.reason,
+      settings: allowed.settings,
+      rows: []
+    };
+  }
+
+  const setup = await googleSetup(env, "");
+  if (!setup.sendReady) {
+    return {
+      enabled: true,
+      attempted: false,
+      sent: 0,
+      failed: 0,
+      skipped: 0,
+      reason: "Gmail API 발송 준비가 완료되지 않았습니다.",
+      blockers: setupSteps(setup),
+      settings: allowed.settings,
+      rows: []
+    };
+  }
+
+  const maxToSend = Math.min(Number(limit) || 20, Number(allowed.settings.followup_remaining_today || 0));
+  const contacts = maxToSend > 0 ? await dueFollowupContacts(env, maxToSend) : [];
+  const rows = [];
+  let sent = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  for (const contact of contacts) {
+    try {
+      const result = await sendWorkflowEmail(env, {
+        contact,
+        fields: fieldsFromContact(contact),
+        mode: "followup_auto"
+      });
+      await recordFollowupAutoSend(env);
+      sent += 1;
+      rows.push({
+        status: "sent",
+        email: result.recipient,
+        template: result.template,
+        subject: result.subject,
+        detail: result.sent_at
+      });
+    } catch (error) {
+      failed += 1;
+      rows.push({
+        status: "failed",
+        email: contact.email || "",
+        template: contact.template || "",
+        error: friendlySendError(error)
+      });
+    }
+  }
+
+  const settings = await formAutoSendSettings(env);
+  return {
+    enabled: true,
+    attempted: true,
+    sent,
+    failed,
+    skipped,
+    due: contacts.length,
+    reason: contacts.length ? "" : "예약일이 지난 후속 메일이 없습니다.",
+    settings,
+    rows
+  };
+}
+
 async function sendGmailMessage(env, { to, subject, textBody, mode }) {
   const recipient = normalizeEmail(to);
   const safeSubject = sanitizeHeader(subject || "");
@@ -437,6 +519,37 @@ async function sendGmailMessage(env, { to, subject, textBody, mode }) {
     });
     throw error;
   }
+}
+
+function fieldsFromContact(contact) {
+  try {
+    const data = JSON.parse(contact?.data_json || "{}");
+    return data.fields && typeof data.fields === "object" ? data.fields : data;
+  } catch {
+    return {};
+  }
+}
+
+function setupSteps(setup) {
+  const steps = [];
+  if (!setup.databaseReady) steps.push("D1 저장소");
+  if (!setup.hasClient) steps.push("Google OAuth Secret");
+  if (!setup.tokenValid) steps.push("Google 연결");
+  return steps;
+}
+
+function friendlySendError(error) {
+  const message = error.message || "Gmail 발송 중 오류가 발생했습니다.";
+  if (/insufficient|scope|permission/i.test(message)) {
+    return "Gmail 발송 권한이 부족합니다. 앱에서 Google 연결을 다시 실행하세요.";
+  }
+  if (/not been used|disabled|api has not/i.test(message)) {
+    return "Google Cloud에서 Gmail API가 켜져 있는지 확인하세요.";
+  }
+  if (/invalid_grant|refresh_token/i.test(message)) {
+    return "Google 연결 토큰이 만료됐습니다. 앱에서 Google 연결을 다시 실행하세요.";
+  }
+  return message;
 }
 
 async function assertNotSentBefore(env, email, template) {

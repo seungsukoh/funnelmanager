@@ -85,6 +85,10 @@ const state = {
     daily_limit: 20,
     sent_today: 0,
     remaining_today: 20,
+    followups_enabled: false,
+    followup_daily_limit: 20,
+    followup_sent_today: 0,
+    followup_remaining_today: 20,
     date: ""
   },
   settingsOpen: false,
@@ -280,6 +284,7 @@ function renderStatusMonitor(nextId) {
       ${renderMonitorItem("Google", connect?.done ? "연결됨" : secret?.done ? "승인 필요" : "설정 필요", connect?.detail || secret?.detail || "Google 연결 상태를 확인하세요.", connect?.done ? "ok" : "warn")}
       ${renderMonitorItem("테스트 발송", state.gmailTestResult?.sent ? "완료" : gmailSend?.done ? "준비됨" : "대기", state.gmailTestResult?.sent ? `${state.gmailTestResult.recipient} 발송` : gmailSend?.detail || "테스트 발송 전", state.gmailTestResult?.sent || gmailSend?.done ? "ok" : "neutral")}
       ${renderMonitorItem("폼 자동 발송", autoSend.enabled ? "켜짐" : "꺼짐", autoSend.enabled ? `오늘 ${autoSend.sent_today || 0}/${autoSend.daily_limit || 20}건 발송` : "폼 응답은 명단에만 등록됩니다.", autoSend.enabled ? "warn" : "neutral")}
+      ${renderMonitorItem("후속 자동 발송", autoSend.followups_enabled ? "켜짐" : "꺼짐", autoSend.followups_enabled ? `오늘 ${autoSend.followup_sent_today || 0}/${autoSend.followup_daily_limit || 20}건 발송` : "예약된 후속 메일은 수동 확인합니다.", autoSend.followups_enabled ? "warn" : "neutral")}
       ${renderMonitorItem(
         "불러온 명단",
         state.contactImportDraft ? "확인 중" : state.queueRows.length ? `${state.queueRows.length}건` : "없음",
@@ -385,10 +390,18 @@ function renderFormAutoSendSettings() {
         <span>새 Google Form 응답이 들어오면 첫 단계 메일을 바로 발송</span>
       </label>
       <label class="field">
-        <span>하루 자동 발송 제한</span>
+        <span>첫 메일 하루 자동 발송 제한</span>
         <input type="number" min="1" max="500" data-form-auto-send-limit value="${safe(settings.daily_limit || 20)}" />
       </label>
-      <p class="settings-note">오늘 ${Number(settings.sent_today || 0)}건 발송했습니다. 자동 발송 전에 단계별 메일 제목/본문과 Google 연결 상태를 확인하세요.</p>
+      <label class="checkbox-field">
+        <input type="checkbox" data-followup-auto-send-enabled ${settings.followups_enabled ? "checked" : ""} />
+        <span>예약일이 지난 후속 메일도 자동 발송</span>
+      </label>
+      <label class="field">
+        <span>후속 메일 하루 자동 발송 제한</span>
+        <input type="number" min="1" max="500" data-followup-auto-send-limit value="${safe(settings.followup_daily_limit || 20)}" />
+      </label>
+      <p class="settings-note">첫 메일 ${Number(settings.sent_today || 0)}건, 후속 메일 ${Number(settings.followup_sent_today || 0)}건을 오늘 자동 발송했습니다. 후속 자동 발송은 단계별 메일의 며칠 후/특정 날짜 예약을 따릅니다.</p>
       <button type="button" data-action="save-form-auto-send">자동 발송 설정 저장</button>
     </section>`;
 }
@@ -975,6 +988,21 @@ function bindEvents() {
     });
   }
 
+  const followupSendEnabled = document.querySelector("[data-followup-auto-send-enabled]");
+  if (followupSendEnabled) {
+    followupSendEnabled.addEventListener("change", () => {
+      state.formAutoSend.followups_enabled = followupSendEnabled.checked;
+      render();
+    });
+  }
+
+  const followupSendLimit = document.querySelector("[data-followup-auto-send-limit]");
+  if (followupSendLimit) {
+    followupSendLimit.addEventListener("input", () => {
+      state.formAutoSend.followup_daily_limit = Number(followupSendLimit.value || 20);
+    });
+  }
+
   for (const input of document.querySelectorAll("[data-flow-index]")) {
     input.addEventListener("input", () => updateFlowField(input));
     input.addEventListener("change", () => updateFlowField(input));
@@ -1208,6 +1236,10 @@ async function loadFormAutoSend() {
       daily_limit: 20,
       sent_today: 0,
       remaining_today: 20,
+      followups_enabled: false,
+      followup_daily_limit: 20,
+      followup_sent_today: 0,
+      followup_remaining_today: 20,
       date: ""
     };
   }
@@ -1217,11 +1249,15 @@ async function saveFormAutoSend() {
   await withBusy("폼 자동 발송 설정을 저장하는 중입니다.", async () => {
     const enabled = Boolean(document.querySelector("[data-form-auto-send-enabled]")?.checked);
     const dailyLimit = Number(document.querySelector("[data-form-auto-send-limit]")?.value || state.formAutoSend.daily_limit || 20);
+    const followupsEnabled = Boolean(document.querySelector("[data-followup-auto-send-enabled]")?.checked);
+    const followupDailyLimit = Number(document.querySelector("[data-followup-auto-send-limit]")?.value || state.formAutoSend.followup_daily_limit || 20);
     const data = await api("/api/forms/auto-send", {
       method: "POST",
       body: JSON.stringify({
         enabled,
-        daily_limit: dailyLimit
+        daily_limit: dailyLimit,
+        followups_enabled: followupsEnabled,
+        followup_daily_limit: followupDailyLimit
       })
     });
     state.formAutoSend = {
