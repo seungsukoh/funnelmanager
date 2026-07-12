@@ -89,6 +89,13 @@ const state = {
     followup_daily_limit: 20,
     followup_sent_today: 0,
     followup_remaining_today: 20,
+    followup_due_count: 0,
+    followup_due_preview: [],
+    followup_gmail_ready: false,
+    followup_ready: false,
+    followup_status_label: "확인 전",
+    followup_status_detail: "후속 메일 상태를 아직 확인하지 않았습니다.",
+    followup_blockers: [],
     date: ""
   },
   settingsOpen: false,
@@ -284,7 +291,7 @@ function renderStatusMonitor(nextId) {
       ${renderMonitorItem("Google", connect?.done ? "연결됨" : secret?.done ? "승인 필요" : "설정 필요", connect?.detail || secret?.detail || "Google 연결 상태를 확인하세요.", connect?.done ? "ok" : "warn")}
       ${renderMonitorItem("테스트 발송", state.gmailTestResult?.sent ? "완료" : gmailSend?.done ? "준비됨" : "대기", state.gmailTestResult?.sent ? `${state.gmailTestResult.recipient} 발송` : gmailSend?.detail || "테스트 발송 전", state.gmailTestResult?.sent || gmailSend?.done ? "ok" : "neutral")}
       ${renderMonitorItem("폼 자동 발송", autoSend.enabled ? "켜짐" : "꺼짐", autoSend.enabled ? `오늘 ${autoSend.sent_today || 0}/${autoSend.daily_limit || 20}건 발송` : "폼 응답은 명단에만 등록됩니다.", autoSend.enabled ? "warn" : "neutral")}
-      ${renderMonitorItem("후속 자동 발송", autoSend.followups_enabled ? "켜짐" : "꺼짐", autoSend.followups_enabled ? `오늘 ${autoSend.followup_sent_today || 0}/${autoSend.followup_daily_limit || 20}건 발송` : "예약된 후속 메일은 수동 확인합니다.", autoSend.followups_enabled ? "warn" : "neutral")}
+      ${renderMonitorItem("후속 자동 발송", autoSend.followups_enabled ? "켜짐" : "꺼짐", autoSend.followup_status_detail || (autoSend.followups_enabled ? `오늘 ${autoSend.followup_sent_today || 0}/${autoSend.followup_daily_limit || 20}건, 지금 대상 ${autoSend.followup_due_count || 0}건` : "예약된 후속 메일은 수동 확인합니다."), autoSend.followup_ready ? "ok" : autoSend.followups_enabled ? "warn" : "neutral")}
       ${renderMonitorItem(
         "불러온 명단",
         state.contactImportDraft ? "확인 중" : state.queueRows.length ? `${state.queueRows.length}건` : "없음",
@@ -382,9 +389,35 @@ function renderSettingsPanel() {
 
 function renderFormAutoSendSettings() {
   const settings = state.formAutoSend;
+  const followupAction = settings.followups_enabled
+    ? { action: "disable-followup-auto-send", label: "후속 자동 발송 끄기", className: "" }
+    : { action: "enable-followup-auto-send", label: "후속 자동 발송 켜기", className: "primary" };
+  const followupTone = settings.followup_ready ? "ok" : settings.followup_blockers?.length ? "warn" : "neutral";
+  const blockerText = (settings.followup_blockers || []).join(" ");
   return `
     <section class="settings-group">
       <h3>폼 자동 발송</h3>
+      <div class="automation-control">
+        <div class="automation-head">
+          <div>
+            <span class="mini-badge ${followupTone}">후속 자동 발송 ${settings.followups_enabled ? "켜짐" : "꺼짐"}</span>
+            <strong>후속 메일 자동 발송</strong>
+            <p>${safe(settings.followup_status_detail || "상태 확인 전입니다.")}</p>
+          </div>
+          <div class="button-row automation-buttons">
+            <button type="button" class="${followupAction.className}" data-action="${followupAction.action}">${followupAction.label}</button>
+            <button type="button" data-action="check-followup-status">상태 확인</button>
+            <button type="button" data-action="run-due-followups">후속 메일 지금 실행</button>
+          </div>
+        </div>
+        <div class="automation-status-grid">
+          ${renderAutomationStat("현재 상태", settings.followup_status_label || "확인 전", settings.followup_gmail_ready ? "Gmail 발송 준비됨" : "Gmail 권한 확인 필요", followupTone)}
+          ${renderAutomationStat("지금 발송 대상", `${Number(settings.followup_due_count || 0)}건`, "예약일이 지났고 아직 발송 전인 명단", Number(settings.followup_due_count || 0) ? "ok" : "neutral")}
+          ${renderAutomationStat("오늘 후속 발송", `${Number(settings.followup_sent_today || 0)}/${Number(settings.followup_daily_limit || 20)}건`, `남은 한도 ${Number(settings.followup_remaining_today || 0)}건`, Number(settings.followup_remaining_today || 0) ? "ok" : "warn")}
+        </div>
+        ${blockerText ? `<p class="automation-warning">${safe(blockerText)}</p>` : ""}
+        ${renderFollowupDuePreview(settings.followup_due_preview || [])}
+      </div>
       <label class="checkbox-field">
         <input type="checkbox" data-form-auto-send-enabled ${settings.enabled ? "checked" : ""} />
         <span>새 Google Form 응답이 들어오면 첫 단계 메일을 바로 발송</span>
@@ -404,6 +437,32 @@ function renderFormAutoSendSettings() {
       <p class="settings-note">첫 메일 ${Number(settings.sent_today || 0)}건, 후속 메일 ${Number(settings.followup_sent_today || 0)}건을 오늘 자동 발송했습니다. 후속 자동 발송은 단계별 메일의 며칠 후/특정 날짜 예약을 따릅니다.</p>
       <button type="button" data-action="save-form-auto-send">자동 발송 설정 저장</button>
     </section>`;
+}
+
+function renderAutomationStat(label, value, detail, tone = "neutral") {
+  return `
+    <div class="automation-stat ${tone}">
+      <span>${safe(label)}</span>
+      <strong>${safe(value)}</strong>
+      <small>${safe(detail)}</small>
+    </div>`;
+}
+
+function renderFollowupDuePreview(rows) {
+  if (!rows.length) {
+    return `<p class="settings-note">상태 확인을 누르면 지금 발송 가능한 후속 메일 대상이 표시됩니다.</p>`;
+  }
+  return `
+    <div class="followup-preview">
+      <strong>지금 발송 대상 미리보기</strong>
+      <ul>
+        ${rows.map((row) => `
+          <li>
+            <span>${safe(row.email || "")}</span>
+            <small>${safe(row.campaign_step || row.template || "후속 메일")} · ${safe(row.next_send_at || "예약일 확인 필요")}</small>
+          </li>`).join("")}
+      </ul>
+    </div>`;
 }
 
 function renderConfigGroup(fields) {
@@ -1185,6 +1244,10 @@ async function runAction(action) {
     "google-status": () => googleStatus({ activate: !state.settingsOpen }),
     "connect-google": () => connectGoogle({ activate: !state.settingsOpen }),
     "save-form-auto-send": saveFormAutoSend,
+    "enable-followup-auto-send": () => setFollowupAutoSend(true),
+    "disable-followup-auto-send": () => setFollowupAutoSend(false),
+    "check-followup-status": checkFollowupStatus,
+    "run-due-followups": runDueFollowups,
     "export-gmail": exportGmail,
     "upload-gmail": uploadGmail,
     "fetch-private-gmail": fetchPrivateGmail,
@@ -1226,10 +1289,7 @@ async function toggleAdvancedSettings() {
 async function loadFormAutoSend() {
   try {
     const data = await api("/api/forms/auto-send");
-    state.formAutoSend = {
-      ...state.formAutoSend,
-      ...(data.settings || {})
-    };
+    applyFormAutoSendResponse(data);
   } catch {
     state.formAutoSend = {
       enabled: false,
@@ -1240,31 +1300,101 @@ async function loadFormAutoSend() {
       followup_daily_limit: 20,
       followup_sent_today: 0,
       followup_remaining_today: 20,
+      followup_due_count: 0,
+      followup_due_preview: [],
+      followup_gmail_ready: false,
+      followup_ready: false,
+      followup_status_label: "확인 전",
+      followup_status_detail: "후속 메일 상태를 아직 확인하지 않았습니다.",
+      followup_blockers: [],
       date: ""
     };
   }
 }
 
-async function saveFormAutoSend() {
+function applyFormAutoSendResponse(data = {}) {
+  const followups = data.status?.followups || {};
+  state.formAutoSend = {
+    ...state.formAutoSend,
+    ...(data.settings || {}),
+    followup_due_count: Number(followups.due_count || 0),
+    followup_due_preview: followups.due_preview || [],
+    followup_gmail_ready: Boolean(followups.gmail_ready),
+    followup_ready: Boolean(followups.ready),
+    followup_status_label: followups.label || "확인 전",
+    followup_status_detail: followups.detail || "후속 메일 상태를 아직 확인하지 않았습니다.",
+    followup_blockers: followups.blockers || []
+  };
+}
+
+function formAutoSendPayload(overrides = {}) {
+  const enabledInput = document.querySelector("[data-form-auto-send-enabled]");
+  const dailyLimitInput = document.querySelector("[data-form-auto-send-limit]");
+  const followupsInput = document.querySelector("[data-followup-auto-send-enabled]");
+  const followupLimitInput = document.querySelector("[data-followup-auto-send-limit]");
+
+  return {
+    enabled: Boolean(overrides.enabled ?? (enabledInput ? enabledInput.checked : state.formAutoSend.enabled)),
+    daily_limit: automationLimit(overrides.daily_limit ?? (dailyLimitInput ? dailyLimitInput.value : state.formAutoSend.daily_limit), state.formAutoSend.daily_limit || 20),
+    followups_enabled: Boolean(overrides.followups_enabled ?? (followupsInput ? followupsInput.checked : state.formAutoSend.followups_enabled)),
+    followup_daily_limit: automationLimit(overrides.followup_daily_limit ?? (followupLimitInput ? followupLimitInput.value : state.formAutoSend.followup_daily_limit), state.formAutoSend.followup_daily_limit || 20)
+  };
+}
+
+function automationLimit(value, fallback = 20) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(Math.max(Math.floor(number), 1), 500);
+}
+
+async function saveFormAutoSend(overrides = {}, successMessage = "") {
   await withBusy("폼 자동 발송 설정을 저장하는 중입니다.", async () => {
-    const enabled = Boolean(document.querySelector("[data-form-auto-send-enabled]")?.checked);
-    const dailyLimit = Number(document.querySelector("[data-form-auto-send-limit]")?.value || state.formAutoSend.daily_limit || 20);
-    const followupsEnabled = Boolean(document.querySelector("[data-followup-auto-send-enabled]")?.checked);
-    const followupDailyLimit = Number(document.querySelector("[data-followup-auto-send-limit]")?.value || state.formAutoSend.followup_daily_limit || 20);
+    const payload = formAutoSendPayload(overrides);
     const data = await api("/api/forms/auto-send", {
       method: "POST",
-      body: JSON.stringify({
-        enabled,
-        daily_limit: dailyLimit,
-        followups_enabled: followupsEnabled,
-        followup_daily_limit: followupDailyLimit
-      })
+      body: JSON.stringify(payload)
     });
-    state.formAutoSend = {
-      ...state.formAutoSend,
-      ...(data.settings || {})
-    };
-    setNotice(messageFrom(data, "폼 자동 발송 설정을 저장했습니다."), "success");
+    applyFormAutoSendResponse(data);
+    setNotice(successMessage || messageFrom(data, "폼 자동 발송 설정을 저장했습니다."), "success");
+  });
+}
+
+async function setFollowupAutoSend(enabled) {
+  await saveFormAutoSend(
+    { followups_enabled: enabled },
+    enabled ? "후속 메일 자동 발송을 켰습니다." : "후속 메일 자동 발송을 껐습니다."
+  );
+}
+
+async function checkFollowupStatus() {
+  await withBusy("후속 메일 자동 발송 상태를 확인하는 중입니다.", async () => {
+    const data = await api("/api/forms/auto-send");
+    applyFormAutoSendResponse(data);
+    const followups = data.status?.followups;
+    setNotice(followups?.detail || "후속 메일 자동 발송 상태를 확인했습니다.", followups?.ready ? "success" : "info");
+  });
+}
+
+async function runDueFollowups() {
+  await withBusy("예약일이 지난 후속 메일을 발송하는 중입니다.", async () => {
+    const payload = formAutoSendPayload();
+    const data = await api("/api/forms/send-due-followups", {
+      method: "POST",
+      body: JSON.stringify({ limit: payload.followup_daily_limit })
+    });
+    if (data.rows) {
+      state.queueRows = data.rows;
+      state.queueCounts = data.counts || {};
+      syncContactSelection();
+    }
+    if (data.summary?.settings) {
+      state.formAutoSend = {
+        ...state.formAutoSend,
+        ...data.summary.settings
+      };
+    }
+    await loadFormAutoSend();
+    setNotice(messageFrom(data, "후속 메일 실행을 완료했습니다."), data.summary?.sent ? "success" : "info");
   });
 }
 

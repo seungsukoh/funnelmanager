@@ -689,6 +689,39 @@ export async function dueFollowupContacts(env, limit = 20) {
   return results;
 }
 
+export async function dueFollowupSummary(env, previewLimit = 5) {
+  if (!(await ensureDatabase(env))) {
+    return {
+      due_count: 0,
+      due_preview: []
+    };
+  }
+
+  const today = todayKst();
+  const countRow = await env.DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM contacts
+     WHERE next_send_at != ''
+       AND substr(next_send_at, 1, 10) <= ?
+       AND status IN ('scheduled', 'ready')`
+  )
+    .bind(today)
+    .first();
+  const duePreview = await dueFollowupContacts(env, previewLimit);
+
+  return {
+    due_count: Number(countRow?.count || 0),
+    due_preview: duePreview.map((row) => ({
+      status: row.status || "",
+      email: row.email || "",
+      template: row.template || "",
+      campaign_step: row.campaign_step || "",
+      next_send_at: row.next_send_at || "",
+      detail: row.detail || ""
+    }))
+  };
+}
+
 function parseBoolean(value) {
   if (value === true) return true;
   const text = String(value || "").trim().toLowerCase();

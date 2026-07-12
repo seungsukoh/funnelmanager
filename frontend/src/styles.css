@@ -143,6 +143,16 @@ h3 {
   color: #34506c;
 }
 
+.mini-badge.ok {
+  background: #e5f4ea;
+  color: #146c3a;
+}
+
+.mini-badge.warn {
+  background: #fff2c7;
+  color: #875600;
+}
+
 .backend-notice,
 .notice {
   display: grid;
@@ -241,6 +251,112 @@ h3 {
   color: #5b687a;
   font-size: 0.9rem;
   line-height: 1.45;
+}
+
+.automation-control {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.automation-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.automation-head strong,
+.automation-head span,
+.automation-stat strong,
+.automation-stat span,
+.followup-preview strong,
+.followup-preview span {
+  display: block;
+}
+
+.automation-head p {
+  margin: 4px 0 0;
+  color: #5b687a;
+  line-height: 1.45;
+}
+
+.automation-buttons {
+  justify-content: flex-end;
+}
+
+.automation-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.automation-stat {
+  min-height: 92px;
+  padding: 10px;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.automation-stat.ok {
+  border-color: #bbdfc8;
+  background: #effaf2;
+}
+
+.automation-stat.warn {
+  border-color: #f0d38a;
+  background: #fff8df;
+}
+
+.automation-stat span {
+  color: #5b687a;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.automation-stat strong {
+  margin: 6px 0;
+  font-size: 1.05rem;
+}
+
+.automation-stat small,
+.followup-preview small {
+  color: #5b687a;
+  line-height: 1.35;
+}
+
+.automation-warning {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #f0d38a;
+  border-radius: 8px;
+  background: #fff8df;
+  color: #875600;
+  line-height: 1.45;
+}
+
+.followup-preview {
+  display: grid;
+  gap: 8px;
+}
+
+.followup-preview ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.followup-preview li {
+  padding: 8px 10px;
+  border: 1px solid #e0e6ef;
+  border-radius: 8px;
+  background: #fbfcfe;
 }
 
 .advanced-settings {
@@ -788,6 +904,7 @@ tbody tr:last-child td {
   .app-header,
   .panel-title,
   .settings-head,
+  .automation-head,
   .import-review-head,
   .flow-head,
   .contact-actions {
@@ -797,6 +914,7 @@ tbody tr:last-child td {
   .workflow,
   .status-monitor,
   .summary-row,
+  .automation-status-grid,
   .import-stats,
   .mapping-grid,
   .checklist,
@@ -806,5 +924,9 @@ tbody tr:last-child td {
 
   h1 {
     font-size: 1.75rem;
+  }
+
+  .automation-buttons {
+    justify-content: flex-start;
   }
 }
