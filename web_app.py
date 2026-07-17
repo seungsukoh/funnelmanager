@@ -323,14 +323,15 @@ def _handle_save_message_flow(payload: dict[str, object]) -> dict[str, object]:
         for step in configured_steps
         if isinstance(step, dict)
     }
+    next_configured_steps: list[dict[str, object]] = []
     seen_templates: dict[str, tuple[str, str]] = {}
     config_changed = False
 
-    for raw_step in saved_steps:
+    for index, raw_step in enumerate(saved_steps):
         if not isinstance(raw_step, dict):
             continue
         step_id = str(raw_step.get("id") or "").strip()
-        if not step_id or step_id not in steps_by_id:
+        if not step_id:
             continue
 
         template_name = _safe_template_name(raw_step.get("template"))
@@ -346,7 +347,38 @@ def _handle_save_message_flow(payload: dict[str, object]) -> dict[str, object]:
             raise ValueError(f"{template_name}: same mail name is used with different content.")
         seen_templates[template_name] = template_signature
 
-        step = steps_by_id[step_id]
+        step = dict(steps_by_id.get(step_id) or {"id": step_id})
+        if step_id not in steps_by_id:
+            config_changed = True
+
+        stage_label = str(raw_step.get("stage_label") or "").strip()
+        if stage_label and step.get("stage_label") != stage_label:
+            step["stage_label"] = stage_label
+            config_changed = True
+
+        audience = str(raw_step.get("audience") or "").strip()
+        if audience and step.get("audience") != audience:
+            step["audience"] = audience
+            config_changed = True
+
+        if not isinstance(step.get("conditions"), list):
+            step["conditions"] = (
+                [{"field": "campaign_step", "operator": "is_empty"}]
+                if index == 0
+                else [{"field": "campaign_step", "operator": "equals", "value": step_id}]
+            )
+            config_changed = True
+
+        priority = raw_step.get("priority")
+        if priority not in (None, ""):
+            try:
+                normalized_priority = int(priority)
+            except (TypeError, ValueError):
+                normalized_priority = (index + 1) * 10
+            if step.get("priority") != normalized_priority:
+                step["priority"] = normalized_priority
+                config_changed = True
+
         current_template = str(step.get("template") or "").strip()
         if current_template != template_name:
             step["template"] = template_name
@@ -430,6 +462,24 @@ def _handle_save_message_flow(payload: dict[str, object]) -> dict[str, object]:
             if "schedule_mode" in step:
                 step.pop("schedule_mode", None)
                 config_changed = True
+
+        status_after = str(raw_step.get("status_after") or "").strip()
+        if status_after:
+            if step.get("set_status") != status_after:
+                step["set_status"] = status_after
+                config_changed = True
+        elif "set_status" in step:
+            step.pop("set_status", None)
+            config_changed = True
+
+        next_configured_steps.append(step)
+
+    if next_configured_steps:
+        current_ids = [str(step.get("id") or step.get("name") or "").strip() for step in configured_steps if isinstance(step, dict)]
+        next_ids = [str(step.get("id") or step.get("name") or "").strip() for step in next_configured_steps]
+        if current_ids != next_ids:
+            config_changed = True
+        funnel["steps"] = next_configured_steps
 
     if config_changed:
         funnel_path.write_text(json.dumps(funnel, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -847,9 +897,9 @@ def _message_flow_steps(funnel: dict[str, object]) -> list[dict[str, object]]:
             {
                 "id": step_id,
                 "order": index,
-                "stage_label": _stage_label(raw_step, index),
+                "stage_label": str(raw_step.get("stage_label") or "").strip() or _stage_label(raw_step, index),
                 "priority": raw_step.get("priority", ""),
-                "audience": _describe_conditions(raw_step.get("conditions")),
+                "audience": str(raw_step.get("audience") or "").strip() or _describe_conditions(raw_step.get("conditions")),
                 "template": template_name,
                 "subject": template["subject"],
                 "text_body": template["text_body"],

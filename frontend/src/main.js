@@ -535,11 +535,103 @@ function isLegacyNoShowStep(step = {}) {
   return label.startsWith("미참석 고객") || id.startsWith("no_show_") || id.startsWith("noshow_");
 }
 
+function defaultStageLabel(index = 0) {
+  if (index === 0) return "첫 메일";
+  if (index === 1) return "두 번째 메일";
+  return `${index + 1}번째 메일`;
+}
+
+function defaultFlowStep(index = 0, overrides = {}) {
+  const first = index === 0;
+  return {
+    id: `email_${index + 1}`,
+    order: index + 1,
+    stage_label: defaultStageLabel(index),
+    priority: (index + 1) * 10,
+    audience: first ? "퍼널에 새로 들어온 고객" : "대상 설명을 입력하세요",
+    template: first ? "event_followup" : `email_${index + 1}`,
+    subject: "",
+    text_body: "",
+    schedule_mode: "none",
+    next_send_after_days: "",
+    next_send_at: "",
+    next_send_time: "",
+    next_step: "",
+    status_after: "",
+    send_after_label: "후속 발송 없음",
+    ...overrides,
+    order: index + 1
+  };
+}
+
+function withoutOutgoingSchedule(step = {}) {
+  return {
+    ...step,
+    next_send_after_days: "",
+    next_send_at: "",
+    next_send_time: "",
+    next_step: "",
+    schedule_mode: "none",
+    send_after_label: "후속 발송 없음"
+  };
+}
+
+function defaultInitialFlowSteps(sourceSteps = []) {
+  const source = Array.isArray(sourceSteps) && sourceSteps[0] ? sourceSteps[0] : {};
+  return [withoutOutgoingSchedule(defaultFlowStep(0, source))];
+}
+
+function stableFlowStepId(step = {}, index = 0) {
+  if (step.id) return String(step.id);
+  if (step.template) return String(step.template).trim().replace(/[^a-zA-Z0-9_-]+/g, "_") || `email_${index + 1}`;
+  return `email_${index + 1}`;
+}
+
+function clearMissingFlowTargets(steps = []) {
+  const ids = new Set(steps.map(stableFlowStepId));
+  return steps.map((step) => (step.next_step && !ids.has(String(step.next_step)) ? withoutOutgoingSchedule(step) : step));
+}
+
+function hasIncomingStepLink(steps = [], index = 0) {
+  const currentId = stableFlowStepId(steps[index], index);
+  return steps.some((candidate, candidateIndex) => candidateIndex < index && String(candidate.next_step || "") === currentId);
+}
+
+function ensureSequentialFlowLinks(steps = []) {
+  const next = clearMissingFlowTargets(steps).map((step, index) => ({ ...step, order: index + 1 }));
+  for (let index = 1; index < next.length; index += 1) {
+    if (hasIncomingStepLink(next, index)) continue;
+    const previous = next[index - 1];
+    previous.next_step = stableFlowStepId(next[index], index);
+    previous.schedule_mode = "previous_days";
+    previous.next_send_after_days = String(previous.next_send_after_days || "").trim() || "1";
+    previous.next_send_at = "";
+    previous.next_send_time = String(previous.next_send_time || DEFAULT_SEND_TIME).slice(0, 5);
+    previous.send_after_label = `이전 메일 발송 후 ${previous.next_send_after_days}일 뒤 ${previous.next_send_time}에 다음 메일`;
+  }
+  return next;
+}
+
+function isSeededTwoStepFlow(steps = []) {
+  if (steps.length !== 2) return false;
+  const second = steps[1] || {};
+  const secondId = String(second.id || "").trim();
+  const secondTemplate = String(second.template || "").trim();
+  return ["funnel_second", "funnel_second_mail"].includes(secondId) || secondTemplate === "event_second_touch";
+}
+
+function seriesFlowStepsFrom(rawSteps = []) {
+  const flowSteps = normaliseFlowSteps(rawSteps);
+  if (!flowSteps.length) return defaultInitialFlowSteps();
+  if (isSeededTwoStepFlow(flowSteps)) return defaultInitialFlowSteps(flowSteps);
+  return flowSteps;
+}
+
 function normaliseFlowSteps(steps = []) {
   const cloned = cloneData(Array.isArray(steps) ? steps : []);
   const hasLegacySplitFirstMail = cloned.some(isLegacyAttendedFirstStep) && cloned.some(isLegacyNoShowFirstStep);
   const visibleSteps = hasLegacySplitFirstMail ? cloned.filter((step) => !isLegacyNoShowStep(step)) : cloned;
-  return visibleSteps.map((step, index) => {
+  const normalised = visibleSteps.map((step, index) => {
     const next = { ...step, order: index + 1 };
     next.stage_label = legacyStepLabel(next.stage_label);
     next.audience = legacyStepLabel(next.audience);
@@ -551,6 +643,7 @@ function normaliseFlowSteps(steps = []) {
     }
     return next;
   });
+  return ensureSequentialFlowLinks(normalised);
 }
 
 function deliverySetId(name = "set") {
@@ -572,7 +665,7 @@ function deliverySetSnapshot(overrides = {}) {
     description: overrides.description ?? current?.description ?? "",
     followupsEnabled: overrides.followupsEnabled ?? current?.followupsEnabled ?? true,
     config,
-    flowSteps: cloneData(state.flowSteps || []),
+    flowSteps: cloneData(overrides.flowSteps ?? state.flowSteps ?? []),
     formAutoSend: cloneData(state.formAutoSend || {}),
     updated_at: new Date().toISOString()
   };
@@ -581,6 +674,7 @@ function deliverySetSnapshot(overrides = {}) {
 function normaliseDeliverySet(raw = {}, index = 0) {
   const config = { ...fallbackDefaults, ...(raw.config || {}) };
   const name = String(raw.name || `퍼널메일 시리즈 ${index + 1}`).trim();
+  const flowSteps = seriesFlowStepsFrom(raw.flowSteps);
   return {
     id: String(raw.id || deliverySetId(name)),
     name,
@@ -588,7 +682,7 @@ function normaliseDeliverySet(raw = {}, index = 0) {
     description: String(raw.description || ""),
     followupsEnabled: raw.followupsEnabled !== false && raw.followups_enabled !== false,
     config,
-    flowSteps: normaliseFlowSteps(raw.flowSteps),
+    flowSteps,
     formAutoSend: raw.formAutoSend && typeof raw.formAutoSend === "object" ? { ...defaultFormAutoSend, ...raw.formAutoSend } : { ...defaultFormAutoSend },
     updated_at: raw.updated_at || ""
   };
@@ -629,9 +723,12 @@ function activeDeliverySet() {
 
 function ensureDeliverySets() {
   if (state.deliverySets.length) return;
-  const set = normaliseDeliverySet(deliverySetSnapshot({ id: deliverySetId(state.config.campaign_id) }));
+  const set = normaliseDeliverySet(deliverySetSnapshot({
+    id: deliverySetId(state.config.campaign_id),
+    flowSteps: defaultInitialFlowSteps(state.flowSteps)
+  }));
   state.deliverySets = [set];
-  state.activeSetId = set.id;
+  applyDeliverySet(set);
   persistDeliverySets();
 }
 
@@ -705,14 +802,14 @@ async function createDeliverySet() {
     status: "active",
     description: "",
     config,
-    flowSteps: [],
+    flowSteps: defaultInitialFlowSteps(),
     formAutoSend: { ...state.formAutoSend, enabled: false, followups_enabled: false }
   });
   state.deliverySets.push(set);
   applyDeliverySet(set);
   persistDeliverySets();
   state.activeTab = "flow";
-  setNotice("새 퍼널메일 시리즈를 만들었습니다. 메일을 추가한 뒤 시리즈 저장을 누르세요.", "success");
+  setNotice("새 퍼널메일 시리즈를 만들었습니다. 첫 메일을 작성한 뒤 필요하면 메일을 추가하세요.", "success");
   render();
 }
 
@@ -1094,6 +1191,7 @@ function renderImportPreview(draft) {
 }
 
 function renderFlowTab() {
+  ensureDeliverySets();
   const followupsEnabled = seriesFollowupsEnabled();
   const steps = visibleFlowSteps();
   const canAddMail = followupsEnabled || state.flowSteps.length === 0;
@@ -1204,7 +1302,6 @@ function renderDeliverySetManager() {
 function renderFlowStep(step, index) {
   const mode = flowArrivalMode(index);
   const link = incomingFlowLink(index);
-  const canSelectPrevious = index > 0;
   return `
     <article class="flow-step">
       <div class="flow-head">
@@ -1237,10 +1334,13 @@ function renderFlowStep(step, index) {
         <label class="field">
           <span>발송 기준</span>
           <select data-flow-arrival-mode data-flow-index="${index}">
-            <option value="start" ${mode === "start" ? "selected" : ""}>시리즈 시작 메일</option>
-            <option value="first_days" ${mode === "first_days" ? "selected" : ""} ${canSelectPrevious ? "" : "disabled"}>첫 메일 발송 이후</option>
-            <option value="previous_days" ${mode === "previous_days" ? "selected" : ""} ${canSelectPrevious ? "" : "disabled"}>이전 메일 발송 이후</option>
-            <option value="date" ${mode === "date" ? "selected" : ""} ${canSelectPrevious ? "" : "disabled"}>특정 날짜에 발송</option>
+            ${index === 0
+              ? `<option value="start" selected>시리즈 시작 메일</option>`
+              : `
+                <option value="first_days" ${mode === "first_days" ? "selected" : ""}>첫 메일 발송 이후</option>
+                <option value="previous_days" ${mode === "previous_days" ? "selected" : ""}>이전 메일 발송 이후</option>
+                <option value="date" ${mode === "date" ? "selected" : ""}>특정 날짜에 발송</option>
+              `}
           </select>
         </label>
       </div>
@@ -1361,8 +1461,9 @@ function outgoingScheduleMode(step, index = -1) {
 }
 
 function flowArrivalMode(index) {
+  if (index <= 0) return "start";
   const link = incomingFlowLink(index);
-  if (!link) return "start";
+  if (!link) return "previous_days";
   if (link.step.next_send_at || link.step.schedule_mode === "date") return "date";
   if (link.step.schedule_mode === "first_days") return "first_days";
   if (link.step.schedule_mode === "previous_days" || link.step.schedule_mode === "days") return "previous_days";
@@ -1824,8 +1925,10 @@ function updateFlowField(input) {
 function updateFlowArrivalMode(input) {
   const index = Number(input.dataset.flowIndex);
   const mode = input.value;
-  if (mode === "start") {
+  if (mode === "start" && index <= 0) {
     clearIncomingFlowLinks(index);
+  } else if (mode === "start") {
+    ensureIncomingFlowLink(index, "previous_days");
   } else {
     ensureIncomingFlowLink(index, mode);
   }
@@ -1874,24 +1977,7 @@ async function addFlowStep() {
     return;
   }
   const index = state.flowSteps.length;
-  const id = flowStepId({}, index);
-  state.flowSteps.push({
-    id,
-    order: index + 1,
-    stage_label: `새 메일 ${index + 1}`,
-    priority: (index + 1) * 10,
-    audience: "대상 설명을 입력하세요",
-    template: `email_${index + 1}`,
-    subject: "",
-    text_body: "",
-    schedule_mode: "none",
-    next_send_after_days: "",
-    next_send_at: "",
-    next_send_time: "",
-    next_step: "",
-    status_after: "",
-    send_after_label: "후속 발송 없음"
-  });
+  state.flowSteps.push(defaultFlowStep(index));
   if (index > 0) ensureIncomingFlowLink(index, "previous_days", index - 1);
   state.activeTab = "flow";
   setNotice("메일 단계를 추가했습니다. 제목과 본문을 입력한 뒤 저장하세요.");
@@ -2114,7 +2200,7 @@ async function loadFlow() {
     const query = new URLSearchParams(formData()).toString();
     const data = await api(`/api/message-flow?${query}`);
     state.backend.connected = true;
-    state.flowSteps = normaliseFlowSteps(data.steps || []);
+    state.flowSteps = seriesFlowStepsFrom(data.steps || []);
     state.templates = data.templates || [];
     state.activeTab = "flow";
     setNotice(messageFrom(data, `메일 흐름 ${state.flowSteps.length}개를 불러왔습니다.`), "success");
@@ -2130,7 +2216,7 @@ async function saveFlow() {
       method: "POST",
       body: JSON.stringify({ ...formData(), steps })
     });
-    const returnedSteps = normaliseFlowSteps(data.steps || []);
+    const returnedSteps = seriesFlowStepsFrom(data.steps || []);
     if (followupsEnabled) {
       state.flowSteps = returnedSteps;
     } else {
@@ -2882,7 +2968,6 @@ async function refreshAll() {
     if (state.backend.mode !== "cloud_preview") {
       state.backend = { connected: true, error: "", mode: "local", message: "" };
     }
-    await loadFlow();
     await googleStatus({ activate: false });
     await loadFormAutoSend();
     state.activeTab = previousTab;
