@@ -956,7 +956,7 @@ def _describe_condition(condition: dict[str, object]) -> str:
 def _send_after_label(step: dict[str, object]) -> str:
     value = step.get("next_send_after_days")
     if value not in (None, ""):
-        return f"이 메일 뒤 {value}일 후 다음 메일"
+        return f"이 단계 메일 발송 후 {value}일 뒤 다음 메일"
     if step.get("next_step") or step.get("set_step"):
         return "다음 단계로 이동"
     return "후속 메일 없음"
@@ -1343,6 +1343,12 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       display: block;
       color: var(--muted);
       margin-top: 2px;
+    }
+    .field-hint {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
     }
     .message-tools {
       display: flex;
@@ -1898,8 +1904,9 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
                     <input data-flow-field="template" list="templateNames" value="${safe(step.template)}">
                   </div>
                   <div>
-                    <label>다음 메일까지</label>
+                    <label>이 단계 메일 발송 후</label>
                     <input data-flow-field="next_send_after_days" type="number" min="0" value="${safe(step.next_send_after_days)}">
+                    <p class="field-hint">첫 메일이 아니라 이 단계 메일의 실제 발송일 기준입니다.</p>
                   </div>
                 </div>
                 <label>제목</label>

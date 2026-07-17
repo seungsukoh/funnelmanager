@@ -49,6 +49,25 @@ button.primary {
   color: #ffffff;
 }
 
+.link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid #b7c2d2;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1d2430;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.link-button:hover {
+  border-color: #315f9d;
+  color: #224f8a;
+}
+
 button.danger {
   border-color: #b42318;
   background: #ffffff;
@@ -251,6 +270,123 @@ h3 {
   color: #5b687a;
   font-size: 0.9rem;
   line-height: 1.45;
+}
+
+.connection-guide {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.connection-guide-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.connection-guide-head p {
+  margin-bottom: 0;
+  color: #5b687a;
+  line-height: 1.45;
+}
+
+.connection-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: connection-step;
+}
+
+.connection-steps li {
+  min-height: 132px;
+  padding: 10px;
+  border: 1px solid #e0e6ef;
+  border-left: 3px solid #315f9d;
+  border-radius: 6px;
+  background: #ffffff;
+  counter-increment: connection-step;
+}
+
+.connection-steps strong,
+.connection-steps span,
+.connection-value span,
+.connection-value code,
+.connection-value small {
+  display: block;
+}
+
+.connection-steps strong::before {
+  content: counter(connection-step) ". ";
+}
+
+.connection-steps span {
+  margin-top: 6px;
+  color: #5b687a;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.connection-values {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.connection-value {
+  display: block;
+  min-height: 106px;
+  padding: 10px;
+  border: 1px solid #e0e6ef;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.connection-value.ok {
+  border-color: #bbdfc8;
+  background: #effaf2;
+}
+
+.connection-value.warn {
+  border-color: #f0d38a;
+  background: #fff8df;
+}
+
+.connection-value span {
+  color: #5b687a;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.connection-value code {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  color: #1d2430;
+  font-family: inherit;
+  font-weight: 800;
+}
+
+.connection-value input {
+  margin: 6px 0;
+}
+
+.connection-value small,
+.sensitive-note {
+  color: #5b687a;
+  line-height: 1.4;
+}
+
+.sensitive-note {
+  margin: 0;
+  font-size: 0.88rem;
 }
 
 .automation-control {
@@ -490,6 +626,12 @@ h3 {
   color: #46566a;
   font-size: 0.86rem;
   font-weight: 800;
+}
+
+.field small {
+  color: #5b687a;
+  font-size: 0.82rem;
+  line-height: 1.4;
 }
 
 input,
@@ -893,6 +1035,14 @@ tbody tr:last-child td {
   .settings-grid {
     grid-template-columns: 1fr;
   }
+
+  .connection-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .connection-values {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -904,6 +1054,7 @@ tbody tr:last-child td {
   .app-header,
   .panel-title,
   .settings-head,
+  .connection-guide-head,
   .automation-head,
   .import-review-head,
   .flow-head,
@@ -918,6 +1069,8 @@ tbody tr:last-child td {
   .import-stats,
   .mapping-grid,
   .checklist,
+  .connection-steps,
+  .connection-values,
   .flow-grid {
     grid-template-columns: 1fr;
   }

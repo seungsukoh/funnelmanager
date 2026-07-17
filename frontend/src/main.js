@@ -78,6 +78,7 @@ const state = {
   gmailRows: [],
   gmailCounts: {},
   googleSteps: [],
+  googleSetup: {},
   googleStatusError: "",
   gmailTestResult: null,
   formAutoSend: {
@@ -155,13 +156,16 @@ function safe(value) {
 }
 
 function formData() {
-  const data = { ...state.config };
-  for (const key of configFields) {
-    const input = document.querySelector(`[data-config="${key}"]`);
-    if (input) data[key] = input.value.trim();
+  state.config = { ...state.config };
+  return state.config;
+}
+
+function setConfigValue(key, value, source = null) {
+  const nextValue = String(value || "");
+  state.config[key] = nextValue.trim();
+  for (const input of document.querySelectorAll(`[data-config="${key}"]`)) {
+    if (input !== source && input.value !== nextValue) input.value = nextValue;
   }
-  state.config = data;
-  return data;
 }
 
 function setNotice(message, tone = "info") {
@@ -341,6 +345,7 @@ function renderSettingsPanel() {
           <button type="button" data-action="close-settings">닫기</button>
         </div>
       </div>
+      ${renderConnectionSetupGuide()}
       ${renderGoogleSteps()}
       <div class="settings-grid">
         <section class="settings-group">
@@ -434,7 +439,7 @@ function renderFormAutoSendSettings() {
         <span>후속 메일 하루 자동 발송 제한</span>
         <input type="number" min="1" max="500" data-followup-auto-send-limit value="${safe(settings.followup_daily_limit || 20)}" />
       </label>
-      <p class="settings-note">첫 메일 ${Number(settings.sent_today || 0)}건, 후속 메일 ${Number(settings.followup_sent_today || 0)}건을 오늘 자동 발송했습니다. 후속 자동 발송은 단계별 메일의 며칠 후/특정 날짜 예약을 따릅니다.</p>
+      <p class="settings-note">첫 메일 ${Number(settings.sent_today || 0)}건, 후속 메일 ${Number(settings.followup_sent_today || 0)}건을 오늘 자동 발송했습니다. 후속 자동 발송은 각 단계 메일의 실제 발송일 기준 예약을 따릅니다.</p>
       <button type="button" data-action="save-form-auto-send">자동 발송 설정 저장</button>
     </section>`;
 }
@@ -475,6 +480,79 @@ function renderConfigGroup(fields) {
         </label>`
     )
     .join("");
+}
+
+function renderConnectionSetupGuide() {
+  const setup = state.googleSetup || {};
+  const redirectUri = setup.redirect_uri || `${apiBase || window.location.origin}/oauth/google/callback`;
+  const credentialsPath = setup.credentials_path || state.config.google_credentials || fallbackDefaults.google_credentials;
+  const tokenPath = setup.token_path || state.config.google_token || fallbackDefaults.google_token;
+  const sheetName = state.config.gmail_sheet_name || setup.sheet_name || fallbackDefaults.gmail_sheet_name;
+  const sheetSource = state.config.gmail_source || "";
+  const testEmail = state.config.test_email || "";
+
+  return `
+    <section class="connection-guide" aria-label="Google 메일 연결 절차">
+      <div class="connection-guide-head">
+        <div>
+          <h3>메일 연결 절차</h3>
+          <p>연결 설정에서 필요한 값을 바로 수정하고, 상태 확인으로 빠진 항목을 확인한 뒤 Google 연결을 완료합니다.</p>
+        </div>
+        <div class="button-row">
+          <a class="link-button" href="https://console.cloud.google.com/apis/library/sheets.googleapis.com" target="_blank" rel="noopener">Sheets API</a>
+          <a class="link-button" href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">OAuth Client</a>
+        </div>
+      </div>
+      <ol class="connection-steps">
+        <li>
+          <strong>Google Cloud 준비</strong>
+          <span>Sheets API를 켜고 OAuth Client를 만듭니다. 승인된 리디렉션 URI에는 아래 값을 그대로 등록합니다.</span>
+        </li>
+        <li>
+          <strong>인증 파일 저장</strong>
+          <span>Google Cloud에서 받은 OAuth JSON을 아래 인증 파일 경로에 저장합니다. 화면에는 파일 경로만 표시합니다.</span>
+        </li>
+        <li>
+          <strong>시트 입력</strong>
+          <span>고객 이메일과 발송 결과를 관리할 Google Sheet 링크와 Sheet 이름을 운영 입력에 넣습니다.</span>
+        </li>
+        <li>
+          <strong>Google 연결</strong>
+          <span>Google 연결을 눌러 권한을 승인합니다. 발급된 토큰은 로컬 토큰 파일에 저장되고 내용은 화면에 표시하지 않습니다.</span>
+        </li>
+        <li>
+          <strong>상태 확인과 테스트</strong>
+          <span>상태 확인으로 모든 항목이 완료인지 확인하고, 테스트 수신자에 실제 받을 주소를 넣어 테스트 발송을 실행합니다.</span>
+        </li>
+      </ol>
+      <div class="connection-values" aria-label="현재 연결 설정값">
+        ${renderConnectionValue("승인 리디렉션 URI", redirectUri, "Google Cloud OAuth Client에 등록할 값", "neutral")}
+        ${renderConnectionInput("Google Sheet 링크", "gmail_source", sheetSource, sheetSource ? "운영 입력에 저장된 시트 링크" : "여기에 시트 링크 입력", sheetSource ? "ok" : "warn", "https://docs.google.com/spreadsheets/...")}
+        ${renderConnectionInput("Sheet 이름", "gmail_sheet_name", sheetName, "발송 준비/결과를 읽고 쓸 탭 이름", "neutral", "GmailQueue")}
+        ${renderConnectionInput("Google 인증 파일", "google_credentials", credentialsPath, "client_secret 값은 파일 안에만 보관", "neutral", "config/google_oauth_client.json")}
+        ${renderConnectionInput("Google 토큰 파일", "google_token", tokenPath, "refresh_token 값은 화면에 표시하지 않음", "neutral", "state/google_sheets_token.json")}
+        ${renderConnectionInput("테스트 수신자", "test_email", testEmail, testEmail ? "테스트 메일을 받을 주소" : "테스트 발송 전 입력 권장", testEmail ? "ok" : "warn", "name@example.com")}
+      </div>
+      <p class="sensitive-note">표시하지 않는 값: OAuth client_secret, access_token, refresh_token, 메일 계정 비밀번호.</p>
+    </section>`;
+}
+
+function renderConnectionValue(label, value, detail, tone = "neutral") {
+  return `
+    <div class="connection-value ${tone}">
+      <span>${safe(label)}</span>
+      <code>${safe(value)}</code>
+      <small>${safe(detail)}</small>
+    </div>`;
+}
+
+function renderConnectionInput(label, key, value, detail, tone = "neutral", placeholder = "") {
+  return `
+    <label class="connection-value editable ${tone}">
+      <span>${safe(label)}</span>
+      <input data-config="${safe(key)}" value="${safe(value)}" placeholder="${safe(placeholder)}" />
+      <small>${safe(detail)}</small>
+    </label>`;
 }
 
 function renderBackendNotice() {
@@ -756,7 +834,7 @@ function renderFlowStep(step, index) {
           <span>후속 발송</span>
           <select data-flow-index="${index}" data-flow-field="schedule_mode" data-flow-repaint="yes">
             <option value="none" ${mode === "none" ? "selected" : ""}>후속 메일 없음</option>
-            <option value="days" ${mode === "days" ? "selected" : ""}>이 메일 발송 후 며칠 뒤</option>
+            <option value="days" ${mode === "days" ? "selected" : ""}>이 단계 메일 발송 후 며칠 뒤</option>
             <option value="date" ${mode === "date" ? "selected" : ""}>특정 날짜에 발송</option>
           </select>
         </label>
@@ -792,8 +870,9 @@ function renderFlowScheduleControls(step, index, mode) {
   if (mode === "days") {
     return `
       <label class="field">
-        <span>며칠 후</span>
+        <span>발송 후 며칠 뒤</span>
         <input type="number" min="0" step="1" data-flow-index="${index}" data-flow-field="next_send_after_days" value="${safe(step.next_send_after_days || "")}" />
+        <small>첫 메일이 아니라 이 단계 메일의 실제 발송일 기준입니다.</small>
       </label>`;
   }
   return `
@@ -825,8 +904,8 @@ function flowScheduleMode(step) {
 function flowScheduleLabel(step) {
   const mode = flowScheduleMode(step);
   if (mode === "date" && step.next_send_at) return `${step.next_send_at}에 다음 메일 예약`;
-  if (mode === "days" && String(step.next_send_after_days || "").trim() !== "") return `이 메일 발송 후 ${step.next_send_after_days}일 뒤 다음 메일 예약`;
-  return "이 메일 뒤에는 자동 예약 없음";
+  if (mode === "days" && String(step.next_send_after_days || "").trim() !== "") return `이 단계 메일 발송 후 ${step.next_send_after_days}일 뒤 다음 메일 예약`;
+  return "이 단계 메일 뒤에는 자동 예약 없음";
 }
 
 function renderApprovalTab() {
@@ -973,6 +1052,16 @@ function renderGoogleSteps() {
     </div>`;
 }
 
+function applyGoogleSetup(data = {}) {
+  if (Array.isArray(data.steps)) state.googleSteps = data.steps;
+  state.googleSetup = {
+    credentials_path: data.credentials_path || state.googleSetup.credentials_path || state.config.google_credentials,
+    token_path: data.token_path || state.googleSetup.token_path || state.config.google_token,
+    redirect_uri: data.redirect_uri || state.googleSetup.redirect_uri || `${apiBase || window.location.origin}/oauth/google/callback`,
+    sheet_name: data.sheet_name || state.googleSetup.sheet_name || state.config.gmail_sheet_name || fallbackDefaults.gmail_sheet_name
+  };
+}
+
 function summaryItem(label, value) {
   return `
     <div class="summary-item">
@@ -1028,7 +1117,7 @@ function bindEvents() {
 
   for (const input of document.querySelectorAll("[data-config]")) {
     input.addEventListener("input", () => {
-      state.config[input.dataset.config] = input.value;
+      setConfigValue(input.dataset.config, input.value, input);
     });
   }
 
@@ -1468,7 +1557,7 @@ function normalizeFlowStepsForSave() {
       if (!normalized.next_send_after_days) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 며칠 뒤 보낼지 입력하세요.`);
       if (!normalized.next_step) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 다음에 보낼 메일을 선택하세요.`);
       normalized.send_after_label = normalized.next_send_after_days
-        ? `이 메일 발송 후 ${normalized.next_send_after_days}일 뒤`
+        ? `이 단계 메일 발송 후 ${normalized.next_send_after_days}일 뒤`
         : "후속 발송 없음";
     } else if (mode === "date") {
       normalized.next_send_after_days = "";
@@ -1564,7 +1653,7 @@ async function googleStatus({ activate = true } = {}) {
         body: JSON.stringify(formData())
       });
       state.googleStatusError = "";
-      state.googleSteps = data.steps || [];
+      applyGoogleSetup(data);
       if (activate) state.activeTab = "gmail";
       setNotice(messageFrom(data, "Google 연결 상태를 확인했습니다."), "success");
     } catch (error) {
@@ -1586,6 +1675,7 @@ async function connectGoogle({ activate = true } = {}) {
         redirect_uri: `${redirectOrigin}/oauth/google/callback`
       })
     });
+    applyGoogleSetup(data);
     if (data.auth_url) window.open(data.auth_url, "_blank", "noopener");
     if (activate) state.activeTab = "gmail";
     setNotice(messageFrom(data, data.auth_url ? "새 창에서 Google 연결을 완료하세요." : "Google 연결 준비 상태를 확인했습니다."), "success");
@@ -1633,7 +1723,7 @@ async function testGmail() {
     });
     if (data.steps) {
       state.googleStatusError = "";
-      state.googleSteps = data.steps;
+      applyGoogleSetup(data);
     }
     state.gmailTestResult = {
       sent: Boolean(data.summary?.sent),
