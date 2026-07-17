@@ -89,10 +89,14 @@ class LeadStateStore:
             lead["campaign_step"] = rule_name
 
         if updates.get("next_send_at"):
-            lead["next_send_at"] = str(updates["next_send_at"])
+            lead["next_send_at"] = _scheduled_datetime(
+                updates["next_send_at"],
+                updates.get("next_send_time"),
+                now,
+            ).isoformat()
         elif updates.get("next_send_after_days") is not None:
             days = float(updates["next_send_after_days"])
-            lead["next_send_at"] = (now + timedelta(days=days)).isoformat()
+            lead["next_send_at"] = _apply_send_time(now + timedelta(days=days), updates.get("next_send_time")).isoformat()
         else:
             lead.pop("next_send_at", None)
 
@@ -148,3 +152,29 @@ def _parse_datetime(value: str) -> datetime:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _scheduled_datetime(date_value: Any, time_value: Any, fallback: datetime) -> datetime:
+    raw_date = str(date_value or "").strip()
+    if "T" in raw_date:
+        return _apply_send_time(_parse_datetime(raw_date), time_value)
+
+    date_only = datetime.fromisoformat(raw_date).date()
+    scheduled = datetime.combine(date_only, fallback.timetz())
+    if scheduled.tzinfo is None:
+        scheduled = scheduled.replace(tzinfo=fallback.tzinfo or timezone.utc)
+    return _apply_send_time(scheduled, time_value)
+
+
+def _apply_send_time(value: datetime, time_value: Any) -> datetime:
+    raw_time = str(time_value or "").strip()
+    if not raw_time:
+        return value
+    parts = raw_time.split(":")
+    if len(parts) < 2:
+        raise ValueError("send time must be HH:MM.")
+    hour = int(parts[0])
+    minute = int(parts[1])
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        raise ValueError("send time must be between 00:00 and 23:59.")
+    return value.replace(hour=hour, minute=minute, second=0, microsecond=0)

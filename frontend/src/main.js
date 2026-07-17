@@ -36,6 +36,7 @@ const fallbackDefaults = {
 };
 
 const DELIVERY_SET_STORAGE_KEY = "automailing.deliverySets.v1";
+const DEFAULT_SEND_TIME = "09:00";
 
 const statusLabels = {
   ready: "보낼 예정",
@@ -605,7 +606,7 @@ async function saveActiveDeliverySet({ silent = false } = {}) {
   state.activeSetId = snapshot.id;
   persistDeliverySets();
   if (!silent) {
-    setNotice(`${snapshot.name} 시리즈를 저장했습니다.`, "success");
+    setNotice(`"${snapshot.name}"을 저장했습니다.`, "success");
     render();
   }
 }
@@ -980,7 +981,7 @@ function renderFlowTab() {
       ${renderDeliverySetManager()}
       <div class="flow-help">
         <strong>메일 흐름의 역할</strong>
-        <span>첫 메일은 조건이 맞거나 승인되면 발송되고, 두 번째 메일부터는 이전 메일 발송 후 며칠 뒤 나갈지 정합니다. 퍼널 메일 시리즈 저장을 누르면 현재 연결 설정과 메일 단계가 이 시리즈에 보관됩니다.</span>
+        <span>첫 메일은 조건이 맞거나 승인되면 발송되고, 후속 메일은 첫 메일 또는 이전 메일 발송 후 +며칠 뒤 정해진 시간에 보내거나 특정 날짜와 시간을 지정합니다.</span>
       </div>
       <div class="flow-list">
         ${
@@ -1084,8 +1085,9 @@ function renderFlowStep(step, index) {
         <label class="field">
           <span>발송 기준</span>
           <select data-flow-arrival-mode data-flow-index="${index}">
-            <option value="start" ${mode === "start" ? "selected" : ""}>첫 메일 · 조건 충족 시</option>
-            <option value="days" ${mode === "days" ? "selected" : ""} ${canSelectPrevious ? "" : "disabled"}>이전 메일 발송 후</option>
+            <option value="start" ${mode === "start" ? "selected" : ""}>시리즈 시작 메일</option>
+            <option value="first_days" ${mode === "first_days" ? "selected" : ""} ${canSelectPrevious ? "" : "disabled"}>첫 메일 발송 이후</option>
+            <option value="previous_days" ${mode === "previous_days" ? "selected" : ""} ${canSelectPrevious ? "" : "disabled"}>이전 메일 발송 이후</option>
             <option value="date" ${mode === "date" ? "selected" : ""} ${canSelectPrevious ? "" : "disabled"}>특정 날짜에 발송</option>
           </select>
         </label>
@@ -1109,16 +1111,16 @@ function renderPreviousStepControl(index, mode) {
   if (mode === "start") {
     return `
       <label class="field">
-        <span>이전 메일</span>
-        <input value="없음 · 이 세트의 시작 메일" disabled />
+        <span>기준 메일</span>
+        <input value="없음 · 이 시리즈의 시작 메일" disabled />
       </label>`;
   }
+  const source = scheduleSource(index, mode);
+  const label = source ? source.step.stage_label || source.step.template || `메일 ${source.index + 1}` : "이전 메일 없음";
   return `
     <label class="field">
-      <span>이전 메일</span>
-      <select data-flow-previous-step data-flow-index="${index}">
-        ${renderPreviousStepOptions(index)}
-      </select>
+      <span>기준 메일</span>
+      <input value="${safe(label)}" disabled />
     </label>`;
 }
 
@@ -1129,14 +1131,22 @@ function renderFlowScheduleControls(index, mode) {
       <label class="field">
         <span>발송 날짜</span>
         <input type="date" data-flow-index="${index}" data-flow-link-field="next_send_at" value="${safe(link?.step.next_send_at || "")}" />
+      </label>
+      <label class="field">
+        <span>발송 시간</span>
+        <input type="time" data-flow-index="${index}" data-flow-link-field="next_send_time" value="${safe(sendTimeValue(link?.step))}" />
       </label>`;
   }
-  if (mode === "days") {
+  if (isRelativeScheduleMode(mode)) {
     return `
       <label class="field">
-        <span>이전 메일 발송 후</span>
+        <span>+ 며칠 후</span>
         <input type="number" min="0" step="1" data-flow-index="${index}" data-flow-link-field="next_send_after_days" value="${safe(link?.step.next_send_after_days || "")}" />
-        <small>예: 3을 입력하면 이전 메일 발송 3일 뒤 이 메일이 발송됩니다.</small>
+        <small>예: 3을 입력하면 기준 메일 발송 3일 뒤입니다.</small>
+      </label>
+      <label class="field">
+        <span>발송 시간</span>
+        <input type="time" data-flow-index="${index}" data-flow-link-field="next_send_time" value="${safe(sendTimeValue(link?.step))}" />
       </label>`;
   }
   return `
@@ -1158,6 +1168,26 @@ function renderPreviousStepOptions(index) {
   return options.join("");
 }
 
+function isRelativeScheduleMode(mode) {
+  return mode === "first_days" || mode === "previous_days" || mode === "days";
+}
+
+function sendTimeValue(step) {
+  return String(step?.next_send_time || DEFAULT_SEND_TIME).slice(0, 5);
+}
+
+function scheduleSourceIndex(index, mode) {
+  if (index <= 0) return -1;
+  if (mode === "first_days") return 0;
+  return index - 1;
+}
+
+function scheduleSource(index, mode) {
+  const sourceIndex = scheduleSourceIndex(index, mode);
+  const step = state.flowSteps[sourceIndex];
+  return step ? { index: sourceIndex, step } : null;
+}
+
 function flowStepIndexById(id) {
   const targetId = String(id || "");
   if (!targetId) return -1;
@@ -1171,17 +1201,20 @@ function outgoingScheduleMode(step, index = -1) {
     if (nextIndex <= index) return "none";
   }
   if (step.schedule_mode === "date") return "date";
-  if (step.schedule_mode === "days") return "days";
+  if (step.schedule_mode === "first_days") return "first_days";
+  if (step.schedule_mode === "previous_days" || step.schedule_mode === "days") return "previous_days";
   if (step.next_send_at) return "date";
-  if (step.next_send_after_days !== undefined && String(step.next_send_after_days).trim() !== "") return "days";
-  return "days";
+  if (step.next_send_after_days !== undefined && String(step.next_send_after_days).trim() !== "") return "previous_days";
+  return "previous_days";
 }
 
 function flowArrivalMode(index) {
   const link = incomingFlowLink(index);
   if (!link) return "start";
   if (link.step.next_send_at || link.step.schedule_mode === "date") return "date";
-  return "days";
+  if (link.step.schedule_mode === "first_days") return "first_days";
+  if (link.step.schedule_mode === "previous_days" || link.step.schedule_mode === "days") return "previous_days";
+  return link.index === 0 && index > 1 ? "first_days" : "previous_days";
 }
 
 function flowScheduleLabel(step, index) {
@@ -1189,13 +1222,15 @@ function flowScheduleLabel(step, index) {
   const link = incomingFlowLink(index);
   if (!link || mode === "start") return "첫 메일 · 조건이 맞거나 승인되면 발송";
   const previousLabel = link.step.stage_label || link.step.template || `메일 ${link.index + 1}`;
+  const time = sendTimeValue(link.step);
   if (mode === "date") {
     return link.step.next_send_at
-      ? `${previousLabel} 이후 ${link.step.next_send_at}에 발송`
-      : `${previousLabel} 이후 특정 날짜에 발송`;
+      ? `${link.step.next_send_at} ${time}에 발송`
+      : `특정 날짜 ${time}에 발송`;
   }
   const days = String(link.step.next_send_after_days || "").trim() || "1";
-  return `${previousLabel} 발송 후 ${days}일 뒤 발송`;
+  const baseLabel = mode === "first_days" ? "첫 메일" : previousLabel;
+  return `${baseLabel} 발송 후 ${days}일 뒤 ${time} 발송`;
 }
 
 function incomingFlowLink(index) {
@@ -1222,6 +1257,7 @@ function clearIncomingFlowLinks(index, exceptIndex = -1) {
       candidate.next_step = "";
       candidate.next_send_after_days = "";
       candidate.next_send_at = "";
+      candidate.next_send_time = "";
       candidate.schedule_mode = "none";
       candidate.send_after_label = "후속 발송 없음";
     }
@@ -1237,20 +1273,22 @@ function ensureIncomingFlowLink(index, mode = "days", previousIndex = null) {
   const current = state.flowSteps[index];
   if (!current) return null;
   const currentId = flowStepId(current, index);
-  const selectedIndex = previousIndex ?? incomingFlowLink(index)?.index ?? defaultPreviousStepIndex(index);
+  const selectedIndex = previousIndex ?? scheduleSourceIndex(index, mode);
   const previous = state.flowSteps[selectedIndex];
   if (!previous || selectedIndex >= index) return null;
   clearIncomingFlowLinks(index, selectedIndex);
   previous.next_step = currentId;
-  previous.schedule_mode = mode;
+  previous.schedule_mode = mode === "days" ? "previous_days" : mode;
   if (mode === "date") {
     previous.next_send_after_days = "";
     previous.next_send_at = previous.next_send_at || "";
-    previous.send_after_label = previous.next_send_at ? `${previous.next_send_at}에 다음 메일` : "특정 날짜에 다음 메일";
+    previous.next_send_time = sendTimeValue(previous);
+    previous.send_after_label = previous.next_send_at ? `${previous.next_send_at} ${previous.next_send_time}에 다음 메일` : "특정 날짜에 다음 메일";
   } else {
     previous.next_send_at = "";
     previous.next_send_after_days = String(previous.next_send_after_days || "").trim() || "1";
-    previous.send_after_label = `이 메일 발송 후 ${previous.next_send_after_days}일 뒤 다음 메일`;
+    previous.next_send_time = sendTimeValue(previous);
+    previous.send_after_label = `이 메일 발송 후 ${previous.next_send_after_days}일 뒤 ${previous.next_send_time}에 다음 메일`;
   }
   return { index: selectedIndex, step: previous };
 }
@@ -1446,7 +1484,7 @@ function columnLabel(column) {
     template: "메일",
     rule: "조건",
     campaign_step: "단계",
-    next_send_at: "다음 발송일",
+    next_send_at: "다음 발송일시",
     detail: "상세",
     error: "오류",
     gmail_status: "Gmail 상태",
@@ -1639,7 +1677,7 @@ function updateFlowArrivalMode(input) {
 function updateFlowPreviousStep(input) {
   const index = Number(input.dataset.flowIndex);
   const previousIndex = Number(input.value);
-  const mode = flowArrivalMode(index) === "date" ? "date" : "days";
+  const mode = flowArrivalMode(index) === "date" ? "date" : "previous_days";
   ensureIncomingFlowLink(index, mode, previousIndex);
   render();
 }
@@ -1647,18 +1685,27 @@ function updateFlowPreviousStep(input) {
 function updateFlowLinkField(input) {
   const index = Number(input.dataset.flowIndex);
   const field = input.dataset.flowLinkField;
-  const mode = field === "next_send_at" ? "date" : "days";
+  const mode = flowArrivalMode(index);
   const link = ensureIncomingFlowLink(index, mode);
   if (!link) return;
   link.step[field] = input.value;
   if (field === "next_send_after_days") {
     link.step.next_send_at = "";
-    link.step.schedule_mode = "days";
-    link.step.send_after_label = input.value ? `이 메일 발송 후 ${input.value}일 뒤 다음 메일` : "다음 메일까지 간격 필요";
+    link.step.schedule_mode = isRelativeScheduleMode(mode) ? mode : "previous_days";
+    link.step.send_after_label = input.value ? `이 메일 발송 후 ${input.value}일 뒤 ${sendTimeValue(link.step)}에 다음 메일` : "다음 메일까지 간격 필요";
   } else if (field === "next_send_at") {
     link.step.next_send_after_days = "";
     link.step.schedule_mode = "date";
-    link.step.send_after_label = input.value ? `${input.value}에 다음 메일` : "특정 날짜 선택 필요";
+    link.step.send_after_label = input.value ? `${input.value} ${sendTimeValue(link.step)}에 다음 메일` : "특정 날짜 선택 필요";
+  } else if (field === "next_send_time") {
+    link.step.next_send_time = sendTimeValue(link.step);
+    if (mode === "date") {
+      link.step.schedule_mode = "date";
+      link.step.send_after_label = link.step.next_send_at ? `${link.step.next_send_at} ${link.step.next_send_time}에 다음 메일` : "특정 날짜 선택 필요";
+    } else {
+      link.step.schedule_mode = isRelativeScheduleMode(mode) ? mode : "previous_days";
+      link.step.send_after_label = link.step.next_send_after_days ? `이 메일 발송 후 ${link.step.next_send_after_days}일 뒤 ${link.step.next_send_time}에 다음 메일` : "다음 메일까지 간격 필요";
+    }
   }
 }
 
@@ -1677,11 +1724,12 @@ async function addFlowStep() {
     schedule_mode: "none",
     next_send_after_days: "",
     next_send_at: "",
+    next_send_time: "",
     next_step: "",
     status_after: "",
     send_after_label: "후속 발송 없음"
   });
-  if (index > 0) ensureIncomingFlowLink(index, "days", index - 1);
+  if (index > 0) ensureIncomingFlowLink(index, "previous_days", index - 1);
   state.activeTab = "flow";
   setNotice("메일 단계를 추가했습니다. 제목과 본문을 입력한 뒤 저장하세요.");
   render();
@@ -1934,25 +1982,31 @@ function normalizeFlowStepsForSave() {
       priority: Number(step.priority || (index + 1) * 10),
       schedule_mode: mode
     };
-    if (mode === "days") {
+    if (isRelativeScheduleMode(mode)) {
       normalized.next_send_at = "";
       normalized.next_send_after_days = String(step.next_send_after_days || "").trim();
+      normalized.next_send_time = sendTimeValue(step);
       if (!normalized.next_step) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 다음 메일이 선택되지 않았습니다.`);
       if (!normalized.next_send_after_days) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 다음 메일까지 며칠 뒤인지 입력하세요.`);
+      if (!normalized.next_send_time) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 발송 시간을 선택하세요.`);
+      const baseLabel = mode === "first_days" ? "첫 메일" : "이 메일";
       normalized.send_after_label = normalized.next_send_after_days
-        ? `다음 메일은 이 메일 발송 후 ${normalized.next_send_after_days}일 뒤`
+        ? `다음 메일은 ${baseLabel} 발송 후 ${normalized.next_send_after_days}일 뒤 ${normalized.next_send_time}`
         : "후속 발송 없음";
     } else if (mode === "date") {
       normalized.next_send_after_days = "";
       normalized.next_send_at = String(step.next_send_at || "").trim();
+      normalized.next_send_time = sendTimeValue(step);
       if (!normalized.next_step) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 다음 메일이 선택되지 않았습니다.`);
       if (!normalized.next_send_at) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 다음 메일 발송 날짜를 선택하세요.`);
+      if (!normalized.next_send_time) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 발송 시간을 선택하세요.`);
       normalized.send_after_label = normalized.next_send_at
-        ? `다음 메일은 ${normalized.next_send_at}에 발송`
+        ? `다음 메일은 ${normalized.next_send_at} ${normalized.next_send_time}에 발송`
         : "특정 날짜 선택 필요";
     } else {
       normalized.next_send_after_days = "";
       normalized.next_send_at = "";
+      normalized.next_send_time = "";
       normalized.next_step = "";
       normalized.send_after_label = "후속 발송 없음";
     }

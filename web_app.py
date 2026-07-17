@@ -359,17 +359,76 @@ def _handle_save_message_flow(payload: dict[str, object]) -> dict[str, object]:
         ):
             _write_template(template_name, subject, text_body)
 
+        next_step = str(raw_step.get("next_step") or "").strip()
+        if next_step:
+            if step.get("next_step") != next_step:
+                step["next_step"] = next_step
+                config_changed = True
+        elif "next_step" in step:
+            step.pop("next_step", None)
+            config_changed = True
+
+        schedule_mode = str(raw_step.get("schedule_mode") or "").strip()
+        if schedule_mode == "days":
+            schedule_mode = "previous_days"
+        if schedule_mode not in {"first_days", "previous_days", "date", "none"}:
+            schedule_mode = ""
+
         delay = str(raw_step.get("next_send_after_days") or "").strip()
-        if delay:
+        send_date = str(raw_step.get("next_send_at") or "").strip()
+        send_time = _normalise_send_time(raw_step.get("next_send_time"))
+
+        if schedule_mode in {"first_days", "previous_days"} or delay:
+            if not delay:
+                raise ValueError(f"{step_id}: delay days are required.")
             delay_days = int(delay)
             if delay_days < 0:
                 raise ValueError(f"{step_id}: delay days cannot be negative.")
             if step.get("next_send_after_days") != delay_days:
                 step["next_send_after_days"] = delay_days
                 config_changed = True
+            if "next_send_at" in step:
+                step.pop("next_send_at", None)
+                config_changed = True
+            if send_time:
+                if step.get("next_send_time") != send_time:
+                    step["next_send_time"] = send_time
+                    config_changed = True
+            elif "next_send_time" in step:
+                step.pop("next_send_time", None)
+                config_changed = True
+            if schedule_mode and step.get("schedule_mode") != schedule_mode:
+                step["schedule_mode"] = schedule_mode
+                config_changed = True
+        elif schedule_mode == "date" or send_date:
+            if step.get("next_send_at") != send_date:
+                step["next_send_at"] = send_date
+                config_changed = True
+            if "next_send_after_days" in step:
+                step.pop("next_send_after_days", None)
+                config_changed = True
+            if send_time:
+                if step.get("next_send_time") != send_time:
+                    step["next_send_time"] = send_time
+                    config_changed = True
+            elif "next_send_time" in step:
+                step.pop("next_send_time", None)
+                config_changed = True
+            if step.get("schedule_mode") != "date":
+                step["schedule_mode"] = "date"
+                config_changed = True
         else:
             if "next_send_after_days" in step:
                 step.pop("next_send_after_days", None)
+                config_changed = True
+            if "next_send_at" in step:
+                step.pop("next_send_at", None)
+                config_changed = True
+            if "next_send_time" in step:
+                step.pop("next_send_time", None)
+                config_changed = True
+            if "schedule_mode" in step:
+                step.pop("schedule_mode", None)
                 config_changed = True
 
     if config_changed:
@@ -794,7 +853,10 @@ def _message_flow_steps(funnel: dict[str, object]) -> list[dict[str, object]]:
                 "template": template_name,
                 "subject": template["subject"],
                 "text_body": template["text_body"],
+                "schedule_mode": raw_step.get("schedule_mode", ""),
                 "next_send_after_days": raw_step.get("next_send_after_days", ""),
+                "next_send_at": raw_step.get("next_send_at", ""),
+                "next_send_time": raw_step.get("next_send_time", ""),
                 "next_step": raw_step.get("next_step") or raw_step.get("set_step") or "",
                 "status_after": raw_step.get("set_status", ""),
                 "send_after_label": _send_after_label(raw_step),
@@ -954,12 +1016,33 @@ def _describe_condition(condition: dict[str, object]) -> str:
 
 
 def _send_after_label(step: dict[str, object]) -> str:
+    mode = str(step.get("schedule_mode") or "").strip()
+    time_value = _normalise_send_time(step.get("next_send_time")) or "09:00"
+    if mode == "date" or step.get("next_send_at"):
+        date_value = str(step.get("next_send_at") or "날짜 미정").strip()
+        return f"{date_value} {time_value}에 다음 메일"
+
     value = step.get("next_send_after_days")
     if value not in (None, ""):
-        return f"이 단계 메일 발송 후 {value}일 뒤 다음 메일"
+        base = "첫 메일" if mode == "first_days" else "이 단계 메일"
+        return f"{base} 발송 후 {value}일 뒤 {time_value}에 다음 메일"
     if step.get("next_step") or step.get("set_step"):
         return "다음 단계로 이동"
     return "후속 메일 없음"
+
+
+def _normalise_send_time(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parts = raw.split(":")
+    if len(parts) < 2:
+        raise ValueError("send time must be HH:MM.")
+    hour = int(parts[0])
+    minute = int(parts[1])
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        raise ValueError("send time must be between 00:00 and 23:59.")
+    return f"{hour:02d}:{minute:02d}"
 
 
 FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>

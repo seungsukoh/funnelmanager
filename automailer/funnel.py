@@ -180,6 +180,7 @@ def _normalise_step(raw: dict[str, Any]) -> FunnelRule:
         "next_step",
         "next_send_at",
         "next_send_after_days",
+        "next_send_time",
     ):
         if key in raw:
             action[key] = raw[key]
@@ -209,6 +210,7 @@ def _action_updates(raw: dict[str, Any]) -> dict[str, Any]:
         "next_step",
         "next_send_at",
         "next_send_after_days",
+        "next_send_time",
     ):
         if key in raw:
             updates[key] = raw[key]

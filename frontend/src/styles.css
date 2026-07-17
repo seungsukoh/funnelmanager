@@ -49,6 +49,12 @@ button.primary {
   color: #ffffff;
 }
 
+button.primary:hover:not(:disabled) {
+  border-color: #1c4273;
+  background: #1c4273;
+  color: #ffffff;
+}
+
 .link-button {
   display: inline-flex;
   align-items: center;
@@ -1011,7 +1017,7 @@ tbody tr:last-child td {
 }
 
 .schedule-grid {
-  grid-template-columns: minmax(180px, 260px) minmax(180px, 1fr);
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
 }
 
 .file-button {
