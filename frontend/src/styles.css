@@ -921,6 +921,12 @@ tbody tr:last-child td {
   gap: 14px;
 }
 
+.flow-add-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
 .set-manager {
   display: grid;
   gap: 12px;
@@ -1150,5 +1156,13 @@ tbody tr:last-child td {
 
   .automation-buttons {
     justify-content: flex-start;
+  }
+
+  .flow-add-row {
+    justify-content: stretch;
+  }
+
+  .flow-add-row button {
+    width: 100%;
   }
 }

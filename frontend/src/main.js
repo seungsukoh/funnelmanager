@@ -263,7 +263,7 @@ function render() {
 
       <section class="workflow" aria-label="오늘 진행 순서">
         ${renderWorkflowCard("people", 1, "명단 확인", "받을 사람 확인", "명단 확인", nextId)}
-        ${renderWorkflowCard("flow", 2, "메일 시리즈", "퍼널 메일 관리", "메일 흐름", nextId)}
+        ${renderWorkflowCard("flow", 2, "메일 시리즈", "퍼널메일 관리", "메일 흐름", nextId)}
         ${renderWorkflowCard("approval", 3, "발송 승인", "오늘 보낼 사람 선택", "승인 만들기", nextId)}
         ${renderWorkflowCard("preview", 4, "미리보기", "발송 전 내용 확인", "미리보기", nextId)}
         ${renderWorkflowCard("gmail", 5, "Gmail 결과", "시트 업로드와 결과 반영", "Gmail 확인", nextId)}
@@ -506,7 +506,7 @@ function deliverySetSnapshot(overrides = {}) {
   const config = { ...state.config };
   return {
     id: overrides.id || state.activeSetId || deliverySetId(config.campaign_id),
-    name: overrides.name || activeDeliverySet()?.name || config.campaign_id || "퍼널 메일 시리즈",
+    name: overrides.name || activeDeliverySet()?.name || config.campaign_id || "퍼널메일 시리즈",
     status: overrides.status || activeDeliverySet()?.status || "active",
     description: overrides.description ?? activeDeliverySet()?.description ?? "",
     config,
@@ -518,7 +518,7 @@ function deliverySetSnapshot(overrides = {}) {
 
 function normaliseDeliverySet(raw = {}, index = 0) {
   const config = { ...fallbackDefaults, ...(raw.config || {}) };
-  const name = String(raw.name || config.campaign_id || `퍼널 메일 시리즈 ${index + 1}`).trim();
+  const name = String(raw.name || config.campaign_id || `퍼널메일 시리즈 ${index + 1}`).trim();
   return {
     id: String(raw.id || deliverySetId(name)),
     name,
@@ -555,7 +555,7 @@ function persistDeliverySets() {
       })
     );
   } catch {
-    setNotice("브라우저 저장소에 퍼널 메일 시리즈를 저장하지 못했습니다.", "error");
+    setNotice("브라우저 저장소에 퍼널메일 시리즈를 저장하지 못했습니다.", "error");
   }
 }
 
@@ -580,15 +580,30 @@ function applyDeliverySet(set) {
 }
 
 async function selectDeliverySet(id) {
-  if (id === state.activeSetId) return;
-  if (state.activeSetId) await saveActiveDeliverySet({ silent: true });
   const set = state.deliverySets.find((item) => item.id === id);
   if (!set) return;
+  if (id === state.activeSetId) {
+    setNotice(`${set.name} 시리즈가 이미 열려 있습니다.`);
+    render();
+    return;
+  }
+  if (state.activeSetId) await saveActiveDeliverySet({ silent: true });
   applyDeliverySet(set);
   persistDeliverySets();
   state.activeTab = "flow";
-  setNotice(`${set.name} 시리즈를 불러왔습니다.`);
+  setNotice(`${set.name} 시리즈를 불러왔습니다.`, "success");
   render();
+}
+
+async function loadSelectedDeliverySet() {
+  ensureDeliverySets();
+  const selectedId = document.querySelector("[data-delivery-set-select]")?.value || state.activeSetId;
+  if (!selectedId) {
+    setNotice("불러올 퍼널메일 시리즈를 선택하세요.", "error");
+    render();
+    return;
+  }
+  await selectDeliverySet(selectedId);
 }
 
 async function saveActiveDeliverySet({ silent = false } = {}) {
@@ -622,7 +637,7 @@ async function createDeliverySet() {
   };
   const set = normaliseDeliverySet({
     id,
-    name: `퍼널 메일 시리즈 ${number}`,
+    name: `퍼널메일 시리즈 ${number}`,
     status: "active",
     description: "",
     config,
@@ -633,7 +648,7 @@ async function createDeliverySet() {
   applyDeliverySet(set);
   persistDeliverySets();
   state.activeTab = "flow";
-  setNotice("새 퍼널 메일 시리즈를 만들었습니다. 메일을 추가한 뒤 시리즈 저장을 누르세요.", "success");
+  setNotice("새 퍼널메일 시리즈를 만들었습니다. 메일을 추가한 뒤 시리즈 저장을 누르세요.", "success");
   render();
 }
 
@@ -659,14 +674,14 @@ async function deleteDeliverySet() {
   const current = activeDeliverySet();
   if (!current) return;
   if (state.deliverySets.length <= 1) {
-    setNotice("최소 하나의 퍼널 메일 시리즈는 남겨야 합니다.", "error");
+    setNotice("최소 하나의 퍼널메일 시리즈는 남겨야 합니다.", "error");
     return;
   }
   if (!globalThis.confirm(`${current.name} 시리즈를 삭제할까요? 브라우저에 저장된 이 시리즈 내용이 삭제됩니다.`)) return;
   state.deliverySets = state.deliverySets.filter((set) => set.id !== current.id);
   applyDeliverySet(state.deliverySets[0]);
   persistDeliverySets();
-  setNotice("퍼널 메일 시리즈를 삭제했습니다.", "success");
+  setNotice("퍼널메일 시리즈를 삭제했습니다.", "success");
   render();
 }
 
@@ -971,11 +986,8 @@ function renderFlowTab() {
     <section class="tab-panel">
       <div class="panel-title">
         <div>
-          <h2>퍼널 메일 시리즈</h2>
+          <h2>퍼널메일 시리즈</h2>
           <p>시리즈별로 메일 순서와 이전 메일 기준 발송 시점을 관리합니다.</p>
-        </div>
-        <div class="button-row">
-          <button type="button" data-action="load-flow">메일 흐름 불러오기</button>
         </div>
       </div>
       ${renderDeliverySetManager()}
@@ -989,6 +1001,9 @@ function renderFlowTab() {
             ? state.flowSteps.map(renderFlowStep).join("")
             : `<p class="empty">아직 메일 흐름을 불러오지 않았습니다.</p>`
         }
+      </div>
+      <div class="flow-add-row">
+        <button type="button" data-action="add-flow-step" class="primary">메일 추가</button>
       </div>
     </section>`;
 }
@@ -1004,19 +1019,18 @@ function renderDeliverySetManager() {
   const stepCount = state.flowSteps.length;
   const updated = current?.updated_at ? new Date(current.updated_at).toLocaleString("ko-KR") : "아직 저장 전";
   return `
-    <section class="set-manager" aria-label="퍼널 메일 시리즈 관리">
+    <section class="set-manager" aria-label="퍼널메일 시리즈 관리">
       <div class="set-manager-head">
         <div>
-          <h3>퍼널 메일 시리즈</h3>
+          <h3>퍼널메일 시리즈</h3>
           <p>행사, 상품, 고객군별로 연결 설정과 메일 순서를 따로 저장합니다.</p>
         </div>
         <div class="button-row">
-          <button type="button" data-action="save-delivery-set" class="primary">퍼널 메일 시리즈 저장</button>
-          <button type="button" data-action="add-flow-step">메일 추가</button>
-          <button type="button" data-action="new-delivery-set">새 퍼널 메일 시리즈 추가</button>
+          <button type="button" data-action="new-delivery-set">새 퍼널메일 시리즈 추가</button>
+          <button type="button" data-action="save-delivery-set" class="primary">퍼널메일 시리즈 저장</button>
+          <button type="button" data-action="load-delivery-set">퍼널메일 시리즈 불러오기</button>
           <button type="button" data-action="duplicate-delivery-set">복제</button>
-          <button type="button" data-action="delete-delivery-set">삭제</button>
-          <button type="button" data-action="save-flow">운영 파일 저장</button>
+          <button type="button" data-action="delete-delivery-set" class="danger">삭제</button>
         </div>
       </div>
       <div class="set-grid">
@@ -1043,7 +1057,7 @@ function renderDeliverySetManager() {
       <div class="set-summary">
         <span>메일 ${stepCount}개</span>
         <span>캠페인 ${safe(state.config.campaign_id || "미입력")}</span>
-        <span>운영 파일 ${safe(state.config.funnel_config || "미입력")}</span>
+        <span>발송 설정 ${safe(state.config.funnel_config || "미입력")}</span>
         <span>마지막 저장 ${safe(updated)}</span>
       </div>
     </section>`;
@@ -1506,11 +1520,6 @@ function bindEvents() {
     });
   }
 
-  const deliverySetSelect = document.querySelector("[data-delivery-set-select]");
-  if (deliverySetSelect) {
-    deliverySetSelect.addEventListener("change", () => selectDeliverySet(deliverySetSelect.value));
-  }
-
   for (const input of document.querySelectorAll("[data-delivery-set-field]")) {
     input.addEventListener("input", () => updateDeliverySetField(input.dataset.deliverySetField, input.value));
     input.addEventListener("change", () => updateDeliverySetField(input.dataset.deliverySetField, input.value));
@@ -1771,6 +1780,7 @@ async function runAction(action) {
     "save-flow": saveFlow,
     "add-flow-step": addFlowStep,
     "save-delivery-set": saveActiveDeliverySet,
+    "load-delivery-set": loadSelectedDeliverySet,
     "new-delivery-set": createDeliverySet,
     "duplicate-delivery-set": duplicateDeliverySet,
     "delete-delivery-set": deleteDeliverySet,
@@ -1968,7 +1978,7 @@ async function saveFlow() {
     state.templates = data.templates || [];
     await saveActiveDeliverySet({ silent: true });
     state.activeTab = "flow";
-    setNotice(messageFrom(data, "메일 흐름과 현재 퍼널 메일 시리즈를 저장했습니다."), "success");
+    setNotice(messageFrom(data, "메일 흐름과 현재 퍼널메일 시리즈를 저장했습니다."), "success");
   });
 }
 
