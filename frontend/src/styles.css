@@ -303,7 +303,7 @@ h3 {
 
 .connection-steps {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin: 0;
   padding: 0;
@@ -312,7 +312,7 @@ h3 {
 }
 
 .connection-steps li {
-  min-height: 132px;
+  min-height: 158px;
   padding: 10px;
   border: 1px solid #e0e6ef;
   border-left: 3px solid #315f9d;
@@ -344,6 +344,36 @@ h3 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+}
+
+.connection-requirements {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.connection-requirements div {
+  min-height: 96px;
+  padding: 10px;
+  border: 1px solid #d8e5f5;
+  border-radius: 6px;
+  background: #f4f8fd;
+}
+
+.connection-requirements strong,
+.connection-requirements span {
+  display: block;
+}
+
+.connection-requirements strong {
+  color: #1d2430;
+}
+
+.connection-requirements span {
+  margin-top: 6px;
+  color: #5b687a;
+  font-size: 0.88rem;
+  line-height: 1.4;
 }
 
 .connection-value {
@@ -961,9 +991,46 @@ tbody tr:last-child td {
   gap: 10px;
 }
 
+.set-options {
+  display: grid;
+  gap: 8px;
+}
+
+.series-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px;
+  border: 1px solid #d8e5f5;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.series-toggle input {
+  width: 18px;
+  min-height: 18px;
+  margin-top: 2px;
+}
+
+.series-toggle strong,
+.series-toggle small {
+  display: block;
+}
+
+.series-toggle strong {
+  color: #1d2430;
+}
+
+.series-toggle small {
+  margin-top: 4px;
+  color: #5b687a;
+  line-height: 1.4;
+}
+
 .set-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -991,6 +1058,22 @@ tbody tr:last-child td {
 }
 
 .flow-help strong {
+  color: #1d2430;
+}
+
+.flow-followup-off {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid #ead08a;
+  border-radius: 8px;
+  background: #fff8df;
+  color: #4d5c6f;
+  line-height: 1.45;
+}
+
+.flow-followup-off strong {
   color: #1d2430;
 }
 
@@ -1103,6 +1186,7 @@ tbody tr:last-child td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .connection-requirements,
   .connection-values {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1143,6 +1227,7 @@ tbody tr:last-child td {
   .mapping-grid,
   .checklist,
   .connection-steps,
+  .connection-requirements,
   .connection-values,
   .set-grid,
   .set-summary,

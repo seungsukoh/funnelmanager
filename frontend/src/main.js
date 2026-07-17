@@ -471,7 +471,7 @@ function renderFollowupDuePreview(rows) {
         ${rows.map((row) => `
           <li>
             <span>${safe(row.email || "")}</span>
-            <small>${safe(row.campaign_step || row.template || "후속 메일")} · ${safe(row.next_send_at || "예약일 확인 필요")}</small>
+            <small>${safe(legacyStepLabel(row.campaign_step || row.template || "후속 메일"))} · ${safe(row.next_send_at || "예약일 확인 필요")}</small>
           </li>`).join("")}
       </ul>
     </div>`;
@@ -493,6 +493,66 @@ function cloneData(value) {
   return JSON.parse(JSON.stringify(value ?? null));
 }
 
+function legacyStepLabel(value) {
+  const cleaned = String(value || "").trim();
+  return {
+    "참석 고객 첫 메일": "첫 메일",
+    "미참석 고객 첫 메일": "첫 메일",
+    "참석 고객 두 번째 메일": "두 번째 메일",
+    "미참석 고객 두 번째 메일": "두 번째 메일",
+    attended_first_touch: "첫 메일",
+    attended_second_touch: "두 번째 메일",
+    no_show_first_touch: "첫 메일",
+    no_show_second_touch: "두 번째 메일",
+    attended_first: "첫 메일",
+    attended_second: "두 번째 메일",
+    noshow_first: "첫 메일",
+    noshow_second: "두 번째 메일"
+  }[cleaned] || cleaned;
+}
+
+function isLegacyAttendedFirstStep(step = {}) {
+  const id = String(step.id || "").trim();
+  const label = String(step.stage_label || "").trim();
+  return label === "참석 고객 첫 메일" || id === "attended_first_touch" || id === "attended_first";
+}
+
+function isLegacyAttendedStep(step = {}) {
+  const id = String(step.id || "").trim();
+  const label = String(step.stage_label || "").trim();
+  return label.startsWith("참석 고객") || id.startsWith("attended_");
+}
+
+function isLegacyNoShowFirstStep(step = {}) {
+  const id = String(step.id || "").trim();
+  const label = String(step.stage_label || "").trim();
+  return label === "미참석 고객 첫 메일" || id === "no_show_first_touch" || id === "noshow_first";
+}
+
+function isLegacyNoShowStep(step = {}) {
+  const id = String(step.id || "").trim();
+  const label = String(step.stage_label || "").trim();
+  return label.startsWith("미참석 고객") || id.startsWith("no_show_") || id.startsWith("noshow_");
+}
+
+function normaliseFlowSteps(steps = []) {
+  const cloned = cloneData(Array.isArray(steps) ? steps : []);
+  const hasLegacySplitFirstMail = cloned.some(isLegacyAttendedFirstStep) && cloned.some(isLegacyNoShowFirstStep);
+  const visibleSteps = hasLegacySplitFirstMail ? cloned.filter((step) => !isLegacyNoShowStep(step)) : cloned;
+  return visibleSteps.map((step, index) => {
+    const next = { ...step, order: index + 1 };
+    next.stage_label = legacyStepLabel(next.stage_label);
+    next.audience = legacyStepLabel(next.audience);
+    if (isLegacyAttendedFirstStep(step) || isLegacyNoShowFirstStep(step)) {
+      next.stage_label = "첫 메일";
+      next.audience = "퍼널에 새로 들어온 고객";
+    } else if (hasLegacySplitFirstMail && isLegacyAttendedStep(step)) {
+      next.audience = "퍼널에 새로 들어온 고객";
+    }
+    return next;
+  });
+}
+
 function deliverySetId(name = "set") {
   const base = String(name || "set").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "set";
   let candidate = `${base}-${Date.now().toString(36)}`;
@@ -504,11 +564,13 @@ function deliverySetId(name = "set") {
 
 function deliverySetSnapshot(overrides = {}) {
   const config = { ...state.config };
+  const current = activeDeliverySet();
   return {
     id: overrides.id || state.activeSetId || deliverySetId(config.campaign_id),
-    name: overrides.name || activeDeliverySet()?.name || "퍼널메일 시리즈",
-    status: overrides.status || activeDeliverySet()?.status || "active",
-    description: overrides.description ?? activeDeliverySet()?.description ?? "",
+    name: overrides.name || current?.name || "퍼널메일 시리즈",
+    status: overrides.status || current?.status || "active",
+    description: overrides.description ?? current?.description ?? "",
+    followupsEnabled: overrides.followupsEnabled ?? current?.followupsEnabled ?? true,
     config,
     flowSteps: cloneData(state.flowSteps || []),
     formAutoSend: cloneData(state.formAutoSend || {}),
@@ -524,8 +586,9 @@ function normaliseDeliverySet(raw = {}, index = 0) {
     name,
     status: raw.status === "paused" ? "paused" : "active",
     description: String(raw.description || ""),
+    followupsEnabled: raw.followupsEnabled !== false && raw.followups_enabled !== false,
     config,
-    flowSteps: Array.isArray(raw.flowSteps) ? raw.flowSteps : [],
+    flowSteps: normaliseFlowSteps(raw.flowSteps),
     formAutoSend: raw.formAutoSend && typeof raw.formAutoSend === "object" ? { ...defaultFormAutoSend, ...raw.formAutoSend } : { ...defaultFormAutoSend },
     updated_at: raw.updated_at || ""
   };
@@ -539,6 +602,7 @@ function loadDeliverySetsFromStorage() {
     state.activeSetId = sets.some((set) => set.id === saved.activeSetId)
       ? saved.activeSetId
       : sets[0]?.id || "";
+    if (sets.length) persistDeliverySets();
   } catch {
     state.deliverySets = [];
     state.activeSetId = "";
@@ -575,7 +639,7 @@ function applyDeliverySet(set) {
   if (!set) return;
   state.activeSetId = set.id;
   state.config = { ...fallbackDefaults, ...state.config, ...set.config };
-  state.flowSteps = cloneData(set.flowSteps || []);
+  state.flowSteps = normaliseFlowSteps(set.flowSteps);
   state.formAutoSend = { ...defaultFormAutoSend, ...(set.formAutoSend || {}) };
 }
 
@@ -692,6 +756,34 @@ function updateDeliverySetField(field, value) {
   current.updated_at = new Date().toISOString();
 }
 
+function seriesFollowupsEnabled() {
+  return activeDeliverySet()?.followupsEnabled !== false;
+}
+
+function hiddenFollowupCount() {
+  return Math.max((state.flowSteps || []).length - 1, 0);
+}
+
+function visibleFlowSteps() {
+  if (seriesFollowupsEnabled()) return state.flowSteps;
+  return state.flowSteps.slice(0, 1);
+}
+
+function updateDeliverySetFollowups(enabled) {
+  const current = activeDeliverySet();
+  if (!current) return;
+  current.followupsEnabled = Boolean(enabled);
+  current.updated_at = new Date().toISOString();
+  persistDeliverySets();
+  setNotice(
+    enabled
+      ? "이 퍼널메일 시리즈에서 후속 메일을 사용합니다."
+      : "이 퍼널메일 시리즈는 첫 메일만 사용합니다. 작성한 후속 메일은 보관됩니다.",
+    "success"
+  );
+  render();
+}
+
 function renderConnectionSetupGuide() {
   const setup = state.googleSetup || {};
   const redirectUri = setup.redirect_uri || `${apiBase || window.location.origin}/oauth/google/callback`;
@@ -706,44 +798,64 @@ function renderConnectionSetupGuide() {
       <div class="connection-guide-head">
         <div>
           <h3>메일 연결 절차</h3>
-          <p>연결 설정에서 필요한 값을 바로 수정하고, 상태 확인으로 빠진 항목을 확인한 뒤 Google 연결을 완료합니다.</p>
+          <p>Google Cloud에서 인증 앱을 만들고, 이 화면의 값을 입력한 뒤 상태 확인과 테스트 발송으로 연결을 마무리합니다.</p>
         </div>
         <div class="button-row">
           <a class="link-button" href="https://console.cloud.google.com/apis/library/sheets.googleapis.com" target="_blank" rel="noopener">Sheets API</a>
+          <a class="link-button" href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noopener">Gmail API</a>
+          <a class="link-button" href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noopener">OAuth 동의</a>
           <a class="link-button" href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">OAuth Client</a>
         </div>
       </div>
       <ol class="connection-steps">
         <li>
-          <strong>Google Cloud 준비</strong>
-          <span>Sheets API를 켜고 OAuth Client를 만듭니다. 승인된 리디렉션 URI에는 아래 값을 그대로 등록합니다.</span>
+          <strong>프로젝트와 API 켜기</strong>
+          <span>Google Cloud 프로젝트를 선택한 뒤 Google Sheets API와 Gmail API를 모두 사용 설정합니다. 둘 중 하나라도 꺼져 있으면 상태 확인에서 막힙니다.</span>
         </li>
         <li>
-          <strong>인증 파일 저장</strong>
-          <span>Google Cloud에서 받은 OAuth JSON을 아래 인증 파일 경로에 저장합니다. 화면에는 파일 경로만 표시합니다.</span>
+          <strong>OAuth 동의 화면 작성</strong>
+          <span>앱 이름, 사용자 지원 이메일, 개발자 연락처를 입력합니다. 게시 전 테스트 상태라면 실제 연결할 Gmail 계정을 Test users에 추가합니다.</span>
         </li>
         <li>
-          <strong>시트 입력</strong>
-          <span>고객 이메일과 발송 결과를 관리할 Google Sheet 링크와 Sheet 이름을 운영 입력에 넣습니다.</span>
+          <strong>OAuth Client 만들기</strong>
+          <span>유형은 Web application으로 만들고, Authorized redirect URIs에 아래 승인 리디렉션 URI를 그대로 붙여 넣습니다.</span>
         </li>
         <li>
-          <strong>Google 연결</strong>
-          <span>Google 연결을 눌러 권한을 승인합니다. 발급된 토큰은 로컬 토큰 파일에 저장되고 내용은 화면에 표시하지 않습니다.</span>
+          <strong>인증 JSON 저장</strong>
+          <span>OAuth Client의 JSON을 다운로드해 아래 Google 인증 파일 경로에 저장합니다. 이 화면에는 client_secret 내용이 아니라 경로만 표시합니다.</span>
         </li>
         <li>
-          <strong>상태 확인과 테스트</strong>
-          <span>상태 확인으로 모든 항목이 완료인지 확인하고, 테스트 수신자에 실제 받을 주소를 넣어 테스트 발송을 실행합니다.</span>
+          <strong>시트와 테스트 값 입력</strong>
+          <span>발송 명단을 관리할 Google Sheet 링크, 탭 이름, 테스트 수신자를 아래 입력칸에 넣습니다. 시트는 승인할 Google 계정으로 접근 가능해야 합니다.</span>
+        </li>
+        <li>
+          <strong>연결하고 확인</strong>
+          <span>Google 연결을 눌러 Sheets 읽기/쓰기와 Gmail 발송 권한을 승인합니다. 이후 상태 확인, 테스트 발송 순서로 실제 연결을 검증합니다.</span>
         </li>
       </ol>
-      <div class="connection-values" aria-label="현재 연결 설정값">
-        ${renderConnectionValue("승인 리디렉션 URI", redirectUri, "Google Cloud OAuth Client에 등록할 값", "neutral")}
-        ${renderConnectionInput("Google Sheet 링크", "gmail_source", sheetSource, sheetSource ? "운영 입력에 저장된 시트 링크" : "여기에 시트 링크 입력", sheetSource ? "ok" : "warn", "https://docs.google.com/spreadsheets/...")}
-        ${renderConnectionInput("Sheet 이름", "gmail_sheet_name", sheetName, "발송 준비/결과를 읽고 쓸 탭 이름", "neutral", "GmailQueue")}
-        ${renderConnectionInput("Google 인증 파일", "google_credentials", credentialsPath, "client_secret 값은 파일 안에만 보관", "neutral", "config/google_oauth_client.json")}
-        ${renderConnectionInput("Google 토큰 파일", "google_token", tokenPath, "refresh_token 값은 화면에 표시하지 않음", "neutral", "state/google_sheets_token.json")}
-        ${renderConnectionInput("테스트 수신자", "test_email", testEmail, testEmail ? "테스트 메일을 받을 주소" : "테스트 발송 전 입력 권장", testEmail ? "ok" : "warn", "name@example.com")}
+      <div class="connection-requirements" aria-label="연결 전 확인 사항">
+        <div>
+          <strong>필수 권한</strong>
+          <span>spreadsheets, gmail.send 권한을 승인해야 명단 시트 읽기/쓰기와 Gmail 발송을 함께 사용할 수 있습니다.</span>
+        </div>
+        <div>
+          <strong>Google Sheet 조건</strong>
+          <span>Sheet 링크는 전체 문서 URL을 넣고, Sheet 이름은 실제 탭 이름과 정확히 같아야 합니다.</span>
+        </div>
+        <div>
+          <strong>토큰 보관</strong>
+          <span>Google 연결 후 access_token과 refresh_token은 토큰 파일에 저장되고 화면에는 표시하지 않습니다.</span>
+        </div>
       </div>
-      <p class="sensitive-note">표시하지 않는 값: OAuth client_secret, access_token, refresh_token, 메일 계정 비밀번호.</p>
+      <div class="connection-values" aria-label="현재 연결 설정값">
+        ${renderConnectionValue("승인 리디렉션 URI", redirectUri, "OAuth Client > Authorized redirect URIs에 그대로 등록", "neutral")}
+        ${renderConnectionInput("Google Sheet 링크", "gmail_source", sheetSource, sheetSource ? "앱이 읽고 쓸 발송 관리 시트" : "발송 관리 시트 전체 URL 입력", sheetSource ? "ok" : "warn", "https://docs.google.com/spreadsheets/...")}
+        ${renderConnectionInput("Sheet 이름", "gmail_sheet_name", sheetName, "발송 준비/결과를 읽고 쓸 탭 이름", "neutral", "GmailQueue")}
+        ${renderConnectionInput("Google 인증 파일", "google_credentials", credentialsPath, "다운로드한 OAuth JSON 파일 경로", "neutral", "config/google_oauth_client.json")}
+        ${renderConnectionInput("Google 토큰 파일", "google_token", tokenPath, "Google 연결 후 자동으로 저장될 토큰 파일 경로", "neutral", "state/google_sheets_token.json")}
+        ${renderConnectionInput("테스트 수신자", "test_email", testEmail, testEmail ? "테스트 메일을 실제로 받을 주소" : "테스트 발송 전 입력 권장", testEmail ? "ok" : "warn", "name@example.com")}
+      </div>
+      <p class="sensitive-note">화면에 노출하지 않는 값: OAuth client_secret, access_token, refresh_token, 메일 계정 비밀번호. 필요한 경우에도 파일 경로와 연결 상태만 보여줍니다.</p>
     </section>`;
 }
 
@@ -895,7 +1007,7 @@ function renderContactsTable() {
               <td>${safe(statusLabels[row.status] || row.status || "")}</td>
               <td>${safe(row.email || "")}</td>
               <td>${safe(row.template || "")}</td>
-              <td>${safe(row.campaign_step || row.rule || "")}</td>
+              <td>${safe(legacyStepLabel(row.campaign_step || row.rule || ""))}</td>
               <td>${safe(row.next_send_at || "")}</td>
               <td>${safe(row.detail || "")}</td>
             </tr>
@@ -973,7 +1085,7 @@ function renderImportPreview(draft) {
               <td>${safe(row.name || "")}</td>
               <td>${safe(row.email || "")}</td>
               <td>${safe(row.template || "")}</td>
-              <td>${safe(row.campaign_step || "")}</td>
+              <td>${safe(legacyStepLabel(row.campaign_step || ""))}</td>
             </tr>
           `).join("")}
         </tbody>
@@ -982,6 +1094,9 @@ function renderImportPreview(draft) {
 }
 
 function renderFlowTab() {
+  const followupsEnabled = seriesFollowupsEnabled();
+  const steps = visibleFlowSteps();
+  const canAddMail = followupsEnabled || state.flowSteps.length === 0;
   return `
     <section class="tab-panel">
       <div class="panel-title">
@@ -995,17 +1110,28 @@ function renderFlowTab() {
         <strong>메일 흐름의 역할</strong>
         <span>첫 메일은 조건이 맞거나 승인되면 발송되고, 후속 메일은 첫 메일 또는 이전 메일 발송 후 +며칠 뒤 정해진 시간에 보내거나 특정 날짜와 시간을 지정합니다.</span>
       </div>
+      ${renderSeriesFollowupNotice()}
       <div class="flow-list">
         ${
-          state.flowSteps.length
-            ? state.flowSteps.map(renderFlowStep).join("")
+          steps.length
+            ? steps.map(renderFlowStep).join("")
             : `<p class="empty">아직 메일 흐름을 불러오지 않았습니다.</p>`
         }
       </div>
       <div class="flow-add-row">
-        <button type="button" data-action="add-flow-step" class="primary">메일 추가</button>
+        <button type="button" data-action="add-flow-step" class="primary" ${canAddMail ? "" : "disabled"}>메일 추가</button>
       </div>
     </section>`;
+}
+
+function renderSeriesFollowupNotice() {
+  if (seriesFollowupsEnabled()) return "";
+  const count = hiddenFollowupCount();
+  return `
+    <div class="flow-followup-off">
+      <strong>후속 메일 꺼짐</strong>
+      <span>현재 퍼널메일 시리즈는 첫 메일만 사용합니다.${count ? ` 작성한 후속 메일 ${count}개는 보관되며 다시 켜면 이어서 수정할 수 있습니다.` : " 후속 메일을 켜면 두 번째 메일부터 추가할 수 있습니다."}</span>
+    </div>`;
 }
 
 function renderDeliverySetManager() {
@@ -1017,6 +1143,8 @@ function renderDeliverySetManager() {
     return `<option value="${safe(set.id)}" ${selected}>${safe(set.name)} · ${status}</option>`;
   }).join("");
   const stepCount = state.flowSteps.length;
+  const followupsEnabled = current?.followupsEnabled !== false;
+  const followupCount = hiddenFollowupCount();
   const updated = current?.updated_at ? new Date(current.updated_at).toLocaleString("ko-KR") : "아직 저장 전";
   return `
     <section class="set-manager" aria-label="퍼널메일 시리즈 관리">
@@ -1054,8 +1182,18 @@ function renderDeliverySetManager() {
           <input data-delivery-set-field="description" value="${safe(current?.description || "")}" placeholder="예: 7월 신규 고객 온보딩" />
         </label>
       </div>
+      <div class="set-options">
+        <label class="series-toggle">
+          <input type="checkbox" data-delivery-set-followups ${followupsEnabled ? "checked" : ""} />
+          <span>
+            <strong>후속 메일 사용</strong>
+            <small>${followupsEnabled ? "첫 메일 이후 두 번째 메일부터의 후속 메일을 이 시리즈에 포함합니다." : `첫 메일만 사용하고 후속 메일 ${followupCount}개는 보관합니다.`}</small>
+          </span>
+        </label>
+      </div>
       <div class="set-summary">
         <span>메일 ${stepCount}개</span>
+        <span>${followupsEnabled ? `후속 ${followupCount}개 사용` : `후속 꺼짐 · ${followupCount}개 보관`}</span>
         <span>캠페인 ${safe(state.config.campaign_id || "미입력")}</span>
         <span>발송 설정 ${safe(state.config.funnel_config || "미입력")}</span>
         <span>마지막 저장 ${safe(updated)}</span>
@@ -1346,7 +1484,7 @@ function renderApprovalTable() {
               <td><input type="checkbox" data-approval-index="${index}" ${row.approved === "yes" ? "checked" : ""} /></td>
               <td>${safe(row.email)}</td>
               <td>${safe(row.template)}</td>
-              <td>${safe(row.campaign_step || row.rule || "")}</td>
+              <td>${safe(legacyStepLabel(row.campaign_step || row.rule || ""))}</td>
               <td>${safe(row.detail || row.next_send_at || "")}</td>
             </tr>
           `).join("")}
@@ -1481,13 +1619,19 @@ function renderTable(rows, columns, emptyText) {
         <tbody>
           ${visibleRows.map((row) => `
             <tr>
-              ${columns.map((column) => `<td>${safe(row[column] || "")}</td>`).join("")}
+              ${columns.map((column) => `<td>${safe(tableCellValue(row, column))}</td>`).join("")}
             </tr>
           `).join("")}
         </tbody>
       </table>
       ${rows.length > visibleRows.length ? `<p class="table-note">처음 ${visibleRows.length}건만 표시합니다.</p>` : ""}
     </div>`;
+}
+
+function tableCellValue(row, column) {
+  const value = row[column] || "";
+  if (column === "campaign_step" || column === "rule") return legacyStepLabel(value);
+  return value;
 }
 
 function columnLabel(column) {
@@ -1523,6 +1667,11 @@ function bindEvents() {
   for (const input of document.querySelectorAll("[data-delivery-set-field]")) {
     input.addEventListener("input", () => updateDeliverySetField(input.dataset.deliverySetField, input.value));
     input.addEventListener("change", () => updateDeliverySetField(input.dataset.deliverySetField, input.value));
+  }
+
+  const deliverySetFollowups = document.querySelector("[data-delivery-set-followups]");
+  if (deliverySetFollowups) {
+    deliverySetFollowups.addEventListener("change", () => updateDeliverySetFollowups(deliverySetFollowups.checked));
   }
 
   const autoSendEnabled = document.querySelector("[data-form-auto-send-enabled]");
@@ -1719,6 +1868,11 @@ function updateFlowLinkField(input) {
 }
 
 async function addFlowStep() {
+  if (!seriesFollowupsEnabled() && state.flowSteps.length > 0) {
+    setNotice("후속 메일 사용을 켠 뒤 메일을 추가하세요.", "error");
+    render();
+    return;
+  }
   const index = state.flowSteps.length;
   const id = flowStepId({}, index);
   state.flowSteps.push({
@@ -1960,7 +2114,7 @@ async function loadFlow() {
     const query = new URLSearchParams(formData()).toString();
     const data = await api(`/api/message-flow?${query}`);
     state.backend.connected = true;
-    state.flowSteps = data.steps || [];
+    state.flowSteps = normaliseFlowSteps(data.steps || []);
     state.templates = data.templates || [];
     state.activeTab = "flow";
     setNotice(messageFrom(data, `메일 흐름 ${state.flowSteps.length}개를 불러왔습니다.`), "success");
@@ -1969,12 +2123,20 @@ async function loadFlow() {
 
 async function saveFlow() {
   await withBusy("메일 흐름을 저장하는 중입니다.", async () => {
+    const previousSteps = cloneData(state.flowSteps || []);
+    const followupsEnabled = seriesFollowupsEnabled();
     const steps = normalizeFlowStepsForSave();
     const data = await api("/api/message-flow/save", {
       method: "POST",
       body: JSON.stringify({ ...formData(), steps })
     });
-    state.flowSteps = data.steps || [];
+    const returnedSteps = normaliseFlowSteps(data.steps || []);
+    if (followupsEnabled) {
+      state.flowSteps = returnedSteps;
+    } else {
+      const firstStep = returnedSteps[0] ? { ...(previousSteps[0] || {}), ...returnedSteps[0] } : previousSteps[0];
+      state.flowSteps = firstStep ? normaliseFlowSteps([firstStep, ...previousSteps.slice(1)]) : [];
+    }
     state.templates = data.templates || [];
     await saveActiveDeliverySet({ silent: true });
     state.activeTab = "flow";
@@ -1982,8 +2144,23 @@ async function saveFlow() {
   });
 }
 
+function flowStepsForSave() {
+  const steps = normaliseFlowSteps(state.flowSteps);
+  if (seriesFollowupsEnabled()) return steps;
+  if (!steps.length) return [];
+  return [{
+    ...steps[0],
+    next_send_after_days: "",
+    next_send_at: "",
+    next_send_time: "",
+    next_step: "",
+    schedule_mode: "none",
+    send_after_label: "후속 발송 없음"
+  }];
+}
+
 function normalizeFlowStepsForSave() {
-  return state.flowSteps.map((step, index) => {
+  return flowStepsForSave().map((step, index) => {
     const mode = outgoingScheduleMode(step, index);
     const normalized = {
       ...step,
