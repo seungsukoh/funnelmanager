@@ -927,9 +927,14 @@ tbody tr:last-child td {
 
 .set-manager-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 520px);
   gap: 12px;
   align-items: start;
+}
+
+.set-manager-head .button-row {
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .set-manager-head p {
@@ -1112,6 +1117,10 @@ tbody tr:last-child td {
   .flow-head,
   .contact-actions {
     grid-template-columns: 1fr;
+  }
+
+  .set-manager-head .button-row {
+    justify-content: flex-start;
   }
 
   .workflow,

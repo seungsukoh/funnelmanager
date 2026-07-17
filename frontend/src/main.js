@@ -262,7 +262,7 @@ function render() {
 
       <section class="workflow" aria-label="오늘 진행 순서">
         ${renderWorkflowCard("people", 1, "명단 확인", "받을 사람 확인", "명단 확인", nextId)}
-        ${renderWorkflowCard("flow", 2, "단계별 메일", "메일 내용 관리", "메일 흐름", nextId)}
+        ${renderWorkflowCard("flow", 2, "메일 시리즈", "퍼널 메일 관리", "메일 흐름", nextId)}
         ${renderWorkflowCard("approval", 3, "발송 승인", "오늘 보낼 사람 선택", "승인 만들기", nextId)}
         ${renderWorkflowCard("preview", 4, "미리보기", "발송 전 내용 확인", "미리보기", nextId)}
         ${renderWorkflowCard("gmail", 5, "Gmail 결과", "시트 업로드와 결과 반영", "Gmail 확인", nextId)}
@@ -272,7 +272,7 @@ function render() {
         <section class="work-panel">
           <nav class="tabs" aria-label="작업 탭">
             ${tabButton("people", "명단 확인")}
-            ${tabButton("flow", "단계별 메일")}
+            ${tabButton("flow", "메일 시리즈")}
             ${tabButton("approval", "발송 승인")}
             ${tabButton("preview", "미리보기")}
             ${tabButton("gmail", "Gmail 결과")}
@@ -326,7 +326,7 @@ function renderMonitorItem(label, value, detail, tone) {
 function workflowTitle(id) {
   return {
     people: "명단 확인",
-    flow: "단계별 메일",
+    flow: "메일 시리즈",
     approval: "발송 승인",
     preview: "미리보기",
     gmail: "Gmail 결과"
@@ -505,7 +505,7 @@ function deliverySetSnapshot(overrides = {}) {
   const config = { ...state.config };
   return {
     id: overrides.id || state.activeSetId || deliverySetId(config.campaign_id),
-    name: overrides.name || activeDeliverySet()?.name || config.campaign_id || "자동 발송 세트",
+    name: overrides.name || activeDeliverySet()?.name || config.campaign_id || "퍼널 메일 시리즈",
     status: overrides.status || activeDeliverySet()?.status || "active",
     description: overrides.description ?? activeDeliverySet()?.description ?? "",
     config,
@@ -517,7 +517,7 @@ function deliverySetSnapshot(overrides = {}) {
 
 function normaliseDeliverySet(raw = {}, index = 0) {
   const config = { ...fallbackDefaults, ...(raw.config || {}) };
-  const name = String(raw.name || config.campaign_id || `자동 발송 세트 ${index + 1}`).trim();
+  const name = String(raw.name || config.campaign_id || `퍼널 메일 시리즈 ${index + 1}`).trim();
   return {
     id: String(raw.id || deliverySetId(name)),
     name,
@@ -554,7 +554,7 @@ function persistDeliverySets() {
       })
     );
   } catch {
-    setNotice("브라우저 저장소에 자동 발송 세트를 저장하지 못했습니다.", "error");
+    setNotice("브라우저 저장소에 퍼널 메일 시리즈를 저장하지 못했습니다.", "error");
   }
 }
 
@@ -586,7 +586,7 @@ async function selectDeliverySet(id) {
   applyDeliverySet(set);
   persistDeliverySets();
   state.activeTab = "flow";
-  setNotice(`${set.name} 세트를 불러왔습니다.`);
+  setNotice(`${set.name} 시리즈를 불러왔습니다.`);
   render();
 }
 
@@ -605,7 +605,7 @@ async function saveActiveDeliverySet({ silent = false } = {}) {
   state.activeSetId = snapshot.id;
   persistDeliverySets();
   if (!silent) {
-    setNotice(`${snapshot.name} 내용을 저장했습니다.`, "success");
+    setNotice(`${snapshot.name} 시리즈를 저장했습니다.`, "success");
     render();
   }
 }
@@ -613,15 +613,15 @@ async function saveActiveDeliverySet({ silent = false } = {}) {
 async function createDeliverySet() {
   if (state.activeSetId) await saveActiveDeliverySet({ silent: true });
   const number = state.deliverySets.length + 1;
-  const id = deliverySetId(`email-set-${number}`);
+  const id = deliverySetId(`email-series-${number}`);
   const config = {
     ...state.config,
-    campaign_id: `email-set-${number}`,
+    campaign_id: `email-series-${number}`,
     funnel_config: state.config.funnel_config || fallbackDefaults.funnel_config
   };
   const set = normaliseDeliverySet({
     id,
-    name: `자동 발송 세트 ${number}`,
+    name: `퍼널 메일 시리즈 ${number}`,
     status: "active",
     description: "",
     config,
@@ -632,7 +632,7 @@ async function createDeliverySet() {
   applyDeliverySet(set);
   persistDeliverySets();
   state.activeTab = "flow";
-  setNotice("새 자동 발송 세트를 만들었습니다. 메일 단계를 추가한 뒤 세트 저장을 누르세요.", "success");
+  setNotice("새 퍼널 메일 시리즈를 만들었습니다. 메일을 추가한 뒤 시리즈 저장을 누르세요.", "success");
   render();
 }
 
@@ -650,7 +650,7 @@ async function duplicateDeliverySet() {
   applyDeliverySet(copy);
   persistDeliverySets();
   state.activeTab = "flow";
-  setNotice(`${copy.name} 세트를 만들었습니다.`, "success");
+  setNotice(`${copy.name} 시리즈를 만들었습니다.`, "success");
   render();
 }
 
@@ -658,14 +658,14 @@ async function deleteDeliverySet() {
   const current = activeDeliverySet();
   if (!current) return;
   if (state.deliverySets.length <= 1) {
-    setNotice("최소 하나의 자동 발송 세트는 남겨야 합니다.", "error");
+    setNotice("최소 하나의 퍼널 메일 시리즈는 남겨야 합니다.", "error");
     return;
   }
-  if (!globalThis.confirm(`${current.name} 세트를 삭제할까요? 브라우저에 저장된 이 세트 내용이 삭제됩니다.`)) return;
+  if (!globalThis.confirm(`${current.name} 시리즈를 삭제할까요? 브라우저에 저장된 이 시리즈 내용이 삭제됩니다.`)) return;
   state.deliverySets = state.deliverySets.filter((set) => set.id !== current.id);
   applyDeliverySet(state.deliverySets[0]);
   persistDeliverySets();
-  setNotice("자동 발송 세트를 삭제했습니다.", "success");
+  setNotice("퍼널 메일 시리즈를 삭제했습니다.", "success");
   render();
 }
 
@@ -970,19 +970,17 @@ function renderFlowTab() {
     <section class="tab-panel">
       <div class="panel-title">
         <div>
-          <h2>단계별 메일</h2>
-          <p>자동 발송 세트별로 메일 순서와 이전 메일 기준 발송 시점을 관리합니다.</p>
+          <h2>퍼널 메일 시리즈</h2>
+          <p>시리즈별로 메일 순서와 이전 메일 기준 발송 시점을 관리합니다.</p>
         </div>
         <div class="button-row">
-          <button type="button" data-action="load-flow">불러오기</button>
-          <button type="button" data-action="add-flow-step">메일 추가</button>
-          <button class="primary" type="button" data-action="save-flow">저장</button>
+          <button type="button" data-action="load-flow">메일 흐름 불러오기</button>
         </div>
       </div>
       ${renderDeliverySetManager()}
       <div class="flow-help">
         <strong>메일 흐름의 역할</strong>
-        <span>첫 메일은 조건이 맞거나 승인되면 발송되고, 두 번째 메일부터는 이전 메일 발송 후 며칠 뒤 나갈지 정합니다. 세트 저장을 누르면 현재 연결 설정과 메일 단계가 이 세트에 보관됩니다.</span>
+        <span>첫 메일은 조건이 맞거나 승인되면 발송되고, 두 번째 메일부터는 이전 메일 발송 후 며칠 뒤 나갈지 정합니다. 퍼널 메일 시리즈 저장을 누르면 현재 연결 설정과 메일 단계가 이 시리즈에 보관됩니다.</span>
       </div>
       <div class="flow-list">
         ${
@@ -1005,26 +1003,28 @@ function renderDeliverySetManager() {
   const stepCount = state.flowSteps.length;
   const updated = current?.updated_at ? new Date(current.updated_at).toLocaleString("ko-KR") : "아직 저장 전";
   return `
-    <section class="set-manager" aria-label="자동 발송 세트 관리">
+    <section class="set-manager" aria-label="퍼널 메일 시리즈 관리">
       <div class="set-manager-head">
         <div>
-          <h3>자동 발송 세트</h3>
-          <p>행사, 상품, 고객군별로 연결 설정과 메일 흐름을 따로 저장합니다.</p>
+          <h3>퍼널 메일 시리즈</h3>
+          <p>행사, 상품, 고객군별로 연결 설정과 메일 순서를 따로 저장합니다.</p>
         </div>
         <div class="button-row">
-          <button type="button" data-action="save-delivery-set" class="primary">세트 내용 저장</button>
-          <button type="button" data-action="new-delivery-set">새 세트</button>
+          <button type="button" data-action="save-delivery-set" class="primary">퍼널 메일 시리즈 저장</button>
+          <button type="button" data-action="add-flow-step">메일 추가</button>
+          <button type="button" data-action="new-delivery-set">새 퍼널 메일 시리즈 추가</button>
           <button type="button" data-action="duplicate-delivery-set">복제</button>
           <button type="button" data-action="delete-delivery-set">삭제</button>
+          <button type="button" data-action="save-flow">운영 파일 저장</button>
         </div>
       </div>
       <div class="set-grid">
         <label class="field">
-          <span>현재 세트</span>
+          <span>현재 시리즈</span>
           <select data-delivery-set-select>${options}</select>
         </label>
         <label class="field">
-          <span>세트 이름</span>
+          <span>시리즈 이름</span>
           <input data-delivery-set-field="name" value="${safe(current?.name || "")}" />
         </label>
         <label class="field">
@@ -1040,9 +1040,9 @@ function renderDeliverySetManager() {
         </label>
       </div>
       <div class="set-summary">
-        <span>메일 단계 ${stepCount}개</span>
+        <span>메일 ${stepCount}개</span>
         <span>캠페인 ${safe(state.config.campaign_id || "미입력")}</span>
-        <span>메일 흐름 파일 ${safe(state.config.funnel_config || "미입력")}</span>
+        <span>운영 파일 ${safe(state.config.funnel_config || "미입력")}</span>
         <span>마지막 저장 ${safe(updated)}</span>
       </div>
     </section>`;
@@ -1920,7 +1920,7 @@ async function saveFlow() {
     state.templates = data.templates || [];
     await saveActiveDeliverySet({ silent: true });
     state.activeTab = "flow";
-    setNotice(messageFrom(data, "메일 흐름과 현재 자동 발송 세트를 저장했습니다."), "success");
+    setNotice(messageFrom(data, "메일 흐름과 현재 퍼널 메일 시리즈를 저장했습니다."), "success");
   });
 }
 
