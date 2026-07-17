@@ -931,14 +931,13 @@ def _describe_conditions(value: object) -> str:
 def _stage_label(step: dict[str, object], index: int) -> str:
     conditions = step.get("conditions")
     stage_id = str(step.get("id") or step.get("name") or "").strip()
-    attendance = _condition_value(conditions, "attendance", "equals")
     campaign_step = _condition_value(conditions, "campaign_step", "equals")
     is_first_touch = _has_condition(conditions, "campaign_step", "is_empty")
 
-    if attendance and is_first_touch:
-        return f"{attendance} 고객 첫 메일"
+    if is_first_touch:
+        return "첫 메일"
     if campaign_step:
-        return f"{_humanise_identifier(campaign_step)} 단계 메일"
+        return _humanise_identifier(campaign_step)
     if stage_id:
         return _humanise_identifier(stage_id)
     return f"단계 {index}"
@@ -971,11 +970,14 @@ def _has_condition(conditions: object, field: str, operator: str) -> bool:
 def _humanise_identifier(value: str) -> str:
     cleaned = value.replace("_", " ").replace("-", " ").strip()
     labels = {
-        "attended first touch": "참석 고객 첫 메일",
-        "attended second touch": "참석 고객 두 번째 메일",
-        "attended complete": "참석 고객 완료",
-        "no show first touch": "미참석 고객 첫 메일",
-        "no show second touch": "미참석 고객 두 번째 메일",
+        "funnel first mail": "첫 메일",
+        "funnel second mail": "두 번째 메일",
+        "funnel complete": "완료",
+        "attended first touch": "첫 메일",
+        "attended second touch": "두 번째 메일",
+        "attended complete": "완료",
+        "no show first touch": "첫 메일",
+        "no show second touch": "두 번째 메일",
     }
     return labels.get(cleaned.lower(), cleaned or value)
 
@@ -988,7 +990,7 @@ def _describe_condition(condition: dict[str, object]) -> str:
     if field == "campaign_step" and operator == "is_empty":
         return "첫 연락 대상"
     if field == "campaign_step" and operator == "equals":
-        return f"{expected} 단계 고객"
+        return f"{_humanise_identifier(expected)} 대상"
     if field == "attendance" and operator == "equals":
         return f"{expected} 고객"
     if field == "lead_tags" and operator == "contains":
@@ -1773,15 +1775,18 @@ FRIENDLY_DASHBOARD_HTML = r"""<!doctype html>
       ignored: "제외"
     };
     const templateLabels = {
-      event_followup: "참석 고객 첫 메일",
-      event_second_touch: "참석 고객 두 번째 메일",
-      no_show_followup: "미참석 고객 첫 메일"
+      event_followup: "첫 메일",
+      event_second_touch: "두 번째 메일",
+      no_show_followup: "자료 공유 메일"
     };
     const stageLabels = {
-      attended_first_touch: "참석 고객 첫 메일 단계",
-      attended_second_touch: "참석 고객 두 번째 메일 단계",
-      no_show_first_touch: "미참석 고객 첫 메일 단계",
-      no_show_second_touch: "미참석 고객 두 번째 메일 단계",
+      funnel_first_mail: "첫 메일 단계",
+      funnel_second_mail: "두 번째 메일 단계",
+      funnel_complete: "완료",
+      attended_first_touch: "첫 메일 단계",
+      attended_second_touch: "두 번째 메일 단계",
+      no_show_first_touch: "첫 메일 단계",
+      no_show_second_touch: "두 번째 메일 단계",
       closed: "종료됨"
     };
     const eventLabels = {

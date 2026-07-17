@@ -506,7 +506,7 @@ function deliverySetSnapshot(overrides = {}) {
   const config = { ...state.config };
   return {
     id: overrides.id || state.activeSetId || deliverySetId(config.campaign_id),
-    name: overrides.name || activeDeliverySet()?.name || config.campaign_id || "퍼널메일 시리즈",
+    name: overrides.name || activeDeliverySet()?.name || "퍼널메일 시리즈",
     status: overrides.status || activeDeliverySet()?.status || "active",
     description: overrides.description ?? activeDeliverySet()?.description ?? "",
     config,
@@ -518,7 +518,7 @@ function deliverySetSnapshot(overrides = {}) {
 
 function normaliseDeliverySet(raw = {}, index = 0) {
   const config = { ...fallbackDefaults, ...(raw.config || {}) };
-  const name = String(raw.name || config.campaign_id || `퍼널메일 시리즈 ${index + 1}`).trim();
+  const name = String(raw.name || `퍼널메일 시리즈 ${index + 1}`).trim();
   return {
     id: String(raw.id || deliverySetId(name)),
     name,
@@ -1051,7 +1051,7 @@ function renderDeliverySetManager() {
         </label>
         <label class="field">
           <span>설명</span>
-          <input data-delivery-set-field="description" value="${safe(current?.description || "")}" placeholder="예: 7월 세미나 참석 고객" />
+          <input data-delivery-set-field="description" value="${safe(current?.description || "")}" placeholder="예: 7월 신규 고객 온보딩" />
         </label>
       </div>
       <div class="set-summary">

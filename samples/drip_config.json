@@ -22,64 +22,39 @@
   ],
   "steps": [
     {
-      "id": "attended_first_touch",
+      "id": "funnel_first_mail",
       "priority": 10,
       "conditions": [
         {
           "field": "campaign_step",
           "operator": "is_empty"
-        },
-        {
-          "field": "attendance",
-          "operator": "equals",
-          "value": "참석"
         }
       ],
       "template": "event_followup",
       "set_status": "육성중",
-      "add_tags": ["세미나참석"],
-      "next_step": "attended_second_touch",
+      "add_tags": ["퍼널메일"],
+      "next_step": "funnel_second_mail",
       "next_send_after_days": 2
     },
     {
-      "id": "attended_second_touch",
+      "id": "funnel_second_mail",
       "priority": 20,
       "conditions": [
         {
           "field": "campaign_step",
           "operator": "equals",
-          "value": "attended_second_touch"
+          "value": "funnel_second_mail"
         },
         {
           "field": "lead_tags",
           "operator": "contains",
-          "value": "세미나참석"
+          "value": "퍼널메일"
         }
       ],
       "template": "event_second_touch",
       "set_status": "관심있음",
       "add_tags": ["추가안내완료"],
-      "set_step": "attended_complete"
-    },
-    {
-      "id": "no_show_first_touch",
-      "priority": 30,
-      "conditions": [
-        {
-          "field": "campaign_step",
-          "operator": "is_empty"
-        },
-        {
-          "field": "attendance",
-          "operator": "equals",
-          "value": "미참석"
-        }
-      ],
-      "template": "no_show_followup",
-      "set_status": "육성중",
-      "add_tags": ["세미나미참석"],
-      "next_step": "no_show_second_touch",
-      "next_send_after_days": 3
+      "set_step": "funnel_complete"
     }
   ]
 }

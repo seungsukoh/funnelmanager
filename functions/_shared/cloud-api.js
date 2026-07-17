@@ -23,22 +23,25 @@ export const DEFAULTS = {
 const FORM_AUTO_SEND_SETTINGS_KEY = "form_auto_send_settings";
 const FORM_AUTO_SEND_COUNT_PREFIX = "form_auto_send_count:";
 const FOLLOWUP_AUTO_SEND_COUNT_PREFIX = "followup_auto_send_count:";
+const SAMPLE_SEED_KEY = "seeded_v2";
+const LEGACY_SAMPLE_STEP_IDS = ["attended_first", "noshow_first", "attended_second", "funnel_first", "funnel_second"];
+const SAMPLE_EMAILS = ["minsu@example.com", "jiyoung@example.com", "hana@example.com", "jun@example.com", "error@example.com"];
 
 export const QUEUE_ROWS = [
   {
     status: "ready",
     email: "minsu@example.com",
     template: "event_followup",
-    rule: "참석 고객",
-    campaign_step: "참석 고객 첫 메일",
+    rule: "퍼널메일 시리즈",
+    campaign_step: "첫 메일",
     next_send_at: "",
     detail: "오늘 보낼 수 있습니다."
   },
   {
     status: "scheduled",
     email: "jiyoung@example.com",
-    template: "second_followup",
-    rule: "관심 고객",
+    template: "event_second_touch",
+    rule: "퍼널메일 시리즈",
     campaign_step: "두 번째 안내",
     next_send_at: "2026-07-03",
     detail: "다음 발송일을 기다립니다."
@@ -46,9 +49,9 @@ export const QUEUE_ROWS = [
   {
     status: "skipped",
     email: "hana@example.com",
-    template: "no_show_followup",
-    rule: "미참석 고객",
-    campaign_step: "미참석 고객 첫 메일",
+    template: "event_followup",
+    rule: "마케팅 동의 없음",
+    campaign_step: "첫 메일",
     next_send_at: "",
     detail: "마케팅 동의가 없어 제외했습니다."
   },
@@ -57,7 +60,7 @@ export const QUEUE_ROWS = [
     email: "jun@example.com",
     template: "event_followup",
     rule: "수신거부",
-    campaign_step: "참석 고객 첫 메일",
+    campaign_step: "첫 메일",
     next_send_at: "",
     detail: "수신거부 고객입니다."
   }
@@ -65,49 +68,35 @@ export const QUEUE_ROWS = [
 
 export const FLOW_STEPS = [
   {
-    id: "attended_first",
+    id: "funnel_first",
     order: 1,
-    stage_label: "참석 고객 첫 메일",
+    stage_label: "첫 메일",
     priority: 10,
-    audience: "참석여부가 참석인 고객",
+    audience: "퍼널에 새로 들어온 고객",
     template: "event_followup",
-    subject: "{{이름}}님, 행사 참석 감사드립니다",
-    text_body: "{{이름}}님 안녕하세요.\n행사에 참석해 주셔서 감사합니다.\n다음 상담이 필요하시면 회신해 주세요.",
-    schedule_mode: "days",
+    subject: "{{이름}}님, 안내드립니다",
+    text_body: "{{이름}}님 안녕하세요.\n관심 가져 주셔서 감사합니다.\n아래 링크에서 안내 자료와 다음 단계를 확인해 주세요.",
+    schedule_mode: "previous_days",
     next_send_after_days: 2,
     next_send_at: "",
-    next_step: "attended_second",
+    next_send_time: "09:00",
+    next_step: "funnel_second",
     status_after: "진행중",
-    send_after_label: "2일 뒤"
+    send_after_label: "첫 메일 발송 후 2일 뒤 09:00에 다음 메일"
   },
   {
-    id: "noshow_first",
+    id: "funnel_second",
     order: 2,
-    stage_label: "미참석 고객 첫 메일",
-    priority: 20,
-    audience: "참석여부가 미참석인 고객",
-    template: "no_show_followup",
-    subject: "{{이름}}님, 행사 자료를 보내드립니다",
-    text_body: "{{이름}}님 안녕하세요.\n참석하지 못하신 분들을 위해 행사 핵심 자료를 정리했습니다.",
-    schedule_mode: "days",
-    next_send_after_days: 3,
-    next_send_at: "",
-    next_step: "noshow_second",
-    status_after: "진행중",
-    send_after_label: "3일 뒤"
-  },
-  {
-    id: "attended_second",
-    order: 3,
     stage_label: "두 번째 안내",
-    priority: 30,
+    priority: 20,
     audience: "첫 메일 이후 관심 고객",
-    template: "second_followup",
+    template: "event_second_touch",
     subject: "{{이름}}님, 다음 단계 안내드립니다",
     text_body: "{{이름}}님께 맞는 다음 단계를 안내드립니다.\n편한 시간에 상담 일정을 선택해 주세요.",
     schedule_mode: "none",
     next_send_after_days: "",
     next_send_at: "",
+    next_send_time: "",
     next_step: "",
     status_after: "상담안내",
     send_after_label: "후속 발송 없음"
@@ -324,8 +313,10 @@ export async function setMetaJson(env, key, value) {
 }
 
 async function seedDatabase(env) {
-  const seeded = await env.DB.prepare("SELECT value FROM app_meta WHERE key = ?").bind("seeded_v1").first();
+  const seeded = await env.DB.prepare("SELECT value FROM app_meta WHERE key = ?").bind(SAMPLE_SEED_KEY).first();
   if (seeded) return;
+
+  await clearSampleSeed(env);
 
   for (const row of QUEUE_ROWS) {
     await env.DB.prepare(
@@ -361,7 +352,17 @@ async function seedDatabase(env) {
       .run();
   }
 
-  await env.DB.prepare("INSERT INTO app_meta (key, value) VALUES (?, ?)").bind("seeded_v1", new Date().toISOString()).run();
+  await env.DB.prepare("INSERT INTO app_meta (key, value) VALUES (?, ?)").bind(SAMPLE_SEED_KEY, new Date().toISOString()).run();
+}
+
+async function clearSampleSeed(env) {
+  const emailPlaceholders = SAMPLE_EMAILS.map(() => "?").join(", ");
+  await env.DB.prepare(`DELETE FROM contacts WHERE email IN (${emailPlaceholders})`).bind(...SAMPLE_EMAILS).run();
+  await env.DB.prepare(`DELETE FROM approvals WHERE email IN (${emailPlaceholders})`).bind(...SAMPLE_EMAILS).run();
+  await env.DB.prepare(`DELETE FROM gmail_results WHERE email IN (${emailPlaceholders})`).bind(...SAMPLE_EMAILS).run();
+
+  const stepPlaceholders = LEGACY_SAMPLE_STEP_IDS.map(() => "?").join(", ");
+  await env.DB.prepare(`DELETE FROM funnel_steps WHERE id IN (${stepPlaceholders})`).bind(...LEGACY_SAMPLE_STEP_IDS).run();
 }
 
 function displayName(email) {
