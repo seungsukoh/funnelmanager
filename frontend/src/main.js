@@ -35,6 +35,8 @@ const fallbackDefaults = {
   timeline: "outbox/web_dashboard_timeline.jsonl"
 };
 
+const DELIVERY_SET_STORAGE_KEY = "automailing.deliverySets.v1";
+
 const statusLabels = {
   ready: "보낼 예정",
   scheduled: "기다림",
@@ -60,6 +62,25 @@ const importFieldLabels = {
   stageColumn: "퍼널 단계"
 };
 
+const defaultFormAutoSend = {
+  enabled: false,
+  daily_limit: 20,
+  sent_today: 0,
+  remaining_today: 20,
+  followups_enabled: false,
+  followup_daily_limit: 20,
+  followup_sent_today: 0,
+  followup_remaining_today: 20,
+  followup_due_count: 0,
+  followup_due_preview: [],
+  followup_gmail_ready: false,
+  followup_ready: false,
+  followup_status_label: "확인 전",
+  followup_status_detail: "후속 메일 상태를 아직 확인하지 않았습니다.",
+  followup_blockers: [],
+  date: ""
+};
+
 const state = {
   config: { ...fallbackDefaults },
   backend: { connected: false, error: "", mode: "none", message: "" },
@@ -81,24 +102,9 @@ const state = {
   googleSetup: {},
   googleStatusError: "",
   gmailTestResult: null,
-  formAutoSend: {
-    enabled: false,
-    daily_limit: 20,
-    sent_today: 0,
-    remaining_today: 20,
-    followups_enabled: false,
-    followup_daily_limit: 20,
-    followup_sent_today: 0,
-    followup_remaining_today: 20,
-    followup_due_count: 0,
-    followup_due_preview: [],
-    followup_gmail_ready: false,
-    followup_ready: false,
-    followup_status_label: "확인 전",
-    followup_status_detail: "후속 메일 상태를 아직 확인하지 않았습니다.",
-    followup_blockers: [],
-    date: ""
-  },
+  deliverySets: [],
+  activeSetId: "",
+  formAutoSend: { ...defaultFormAutoSend },
   settingsOpen: false,
   advancedSettingsOpen: false,
   contactImport: null,
@@ -482,6 +488,194 @@ function renderConfigGroup(fields) {
     .join("");
 }
 
+function cloneData(value) {
+  return JSON.parse(JSON.stringify(value ?? null));
+}
+
+function deliverySetId(name = "set") {
+  const base = String(name || "set").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "set";
+  let candidate = `${base}-${Date.now().toString(36)}`;
+  while (state.deliverySets.some((set) => set.id === candidate)) {
+    candidate = `${base}-${Date.now().toString(36)}-${Math.floor(Math.random() * 1000)}`;
+  }
+  return candidate;
+}
+
+function deliverySetSnapshot(overrides = {}) {
+  const config = { ...state.config };
+  return {
+    id: overrides.id || state.activeSetId || deliverySetId(config.campaign_id),
+    name: overrides.name || activeDeliverySet()?.name || config.campaign_id || "자동 발송 세트",
+    status: overrides.status || activeDeliverySet()?.status || "active",
+    description: overrides.description ?? activeDeliverySet()?.description ?? "",
+    config,
+    flowSteps: cloneData(state.flowSteps || []),
+    formAutoSend: cloneData(state.formAutoSend || {}),
+    updated_at: new Date().toISOString()
+  };
+}
+
+function normaliseDeliverySet(raw = {}, index = 0) {
+  const config = { ...fallbackDefaults, ...(raw.config || {}) };
+  const name = String(raw.name || config.campaign_id || `자동 발송 세트 ${index + 1}`).trim();
+  return {
+    id: String(raw.id || deliverySetId(name)),
+    name,
+    status: raw.status === "paused" ? "paused" : "active",
+    description: String(raw.description || ""),
+    config,
+    flowSteps: Array.isArray(raw.flowSteps) ? raw.flowSteps : [],
+    formAutoSend: raw.formAutoSend && typeof raw.formAutoSend === "object" ? { ...defaultFormAutoSend, ...raw.formAutoSend } : { ...defaultFormAutoSend },
+    updated_at: raw.updated_at || ""
+  };
+}
+
+function loadDeliverySetsFromStorage() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DELIVERY_SET_STORAGE_KEY) || "{}");
+    const sets = Array.isArray(saved.sets) ? saved.sets.map(normaliseDeliverySet) : [];
+    state.deliverySets = sets;
+    state.activeSetId = sets.some((set) => set.id === saved.activeSetId)
+      ? saved.activeSetId
+      : sets[0]?.id || "";
+  } catch {
+    state.deliverySets = [];
+    state.activeSetId = "";
+  }
+}
+
+function persistDeliverySets() {
+  try {
+    localStorage.setItem(
+      DELIVERY_SET_STORAGE_KEY,
+      JSON.stringify({
+        activeSetId: state.activeSetId,
+        sets: state.deliverySets
+      })
+    );
+  } catch {
+    setNotice("브라우저 저장소에 자동 발송 세트를 저장하지 못했습니다.", "error");
+  }
+}
+
+function activeDeliverySet() {
+  return state.deliverySets.find((set) => set.id === state.activeSetId) || null;
+}
+
+function ensureDeliverySets() {
+  if (state.deliverySets.length) return;
+  const set = normaliseDeliverySet(deliverySetSnapshot({ id: deliverySetId(state.config.campaign_id) }));
+  state.deliverySets = [set];
+  state.activeSetId = set.id;
+  persistDeliverySets();
+}
+
+function applyDeliverySet(set) {
+  if (!set) return;
+  state.activeSetId = set.id;
+  state.config = { ...fallbackDefaults, ...state.config, ...set.config };
+  state.flowSteps = cloneData(set.flowSteps || []);
+  state.formAutoSend = { ...defaultFormAutoSend, ...(set.formAutoSend || {}) };
+}
+
+async function selectDeliverySet(id) {
+  if (id === state.activeSetId) return;
+  if (state.activeSetId) await saveActiveDeliverySet({ silent: true });
+  const set = state.deliverySets.find((item) => item.id === id);
+  if (!set) return;
+  applyDeliverySet(set);
+  persistDeliverySets();
+  state.activeTab = "flow";
+  setNotice(`${set.name} 세트를 불러왔습니다.`);
+  render();
+}
+
+async function saveActiveDeliverySet({ silent = false } = {}) {
+  formData();
+  const current = activeDeliverySet();
+  const snapshot = deliverySetSnapshot({
+    id: current?.id || deliverySetId(state.config.campaign_id),
+    name: current?.name,
+    status: current?.status,
+    description: current?.description
+  });
+  const index = state.deliverySets.findIndex((set) => set.id === snapshot.id);
+  if (index >= 0) state.deliverySets[index] = snapshot;
+  else state.deliverySets.push(snapshot);
+  state.activeSetId = snapshot.id;
+  persistDeliverySets();
+  if (!silent) {
+    setNotice(`${snapshot.name} 내용을 저장했습니다.`, "success");
+    render();
+  }
+}
+
+async function createDeliverySet() {
+  if (state.activeSetId) await saveActiveDeliverySet({ silent: true });
+  const number = state.deliverySets.length + 1;
+  const id = deliverySetId(`email-set-${number}`);
+  const config = {
+    ...state.config,
+    campaign_id: `email-set-${number}`,
+    funnel_config: state.config.funnel_config || fallbackDefaults.funnel_config
+  };
+  const set = normaliseDeliverySet({
+    id,
+    name: `자동 발송 세트 ${number}`,
+    status: "active",
+    description: "",
+    config,
+    flowSteps: [],
+    formAutoSend: { ...state.formAutoSend, enabled: false, followups_enabled: false }
+  });
+  state.deliverySets.push(set);
+  applyDeliverySet(set);
+  persistDeliverySets();
+  state.activeTab = "flow";
+  setNotice("새 자동 발송 세트를 만들었습니다. 메일 단계를 추가한 뒤 세트 저장을 누르세요.", "success");
+  render();
+}
+
+async function duplicateDeliverySet() {
+  if (state.activeSetId) await saveActiveDeliverySet({ silent: true });
+  const current = activeDeliverySet();
+  const source = current || deliverySetSnapshot();
+  const copy = normaliseDeliverySet({
+    ...cloneData(source),
+    id: deliverySetId(`${source.name}-copy`),
+    name: `${source.name} 복사본`,
+    updated_at: new Date().toISOString()
+  });
+  state.deliverySets.push(copy);
+  applyDeliverySet(copy);
+  persistDeliverySets();
+  state.activeTab = "flow";
+  setNotice(`${copy.name} 세트를 만들었습니다.`, "success");
+  render();
+}
+
+async function deleteDeliverySet() {
+  const current = activeDeliverySet();
+  if (!current) return;
+  if (state.deliverySets.length <= 1) {
+    setNotice("최소 하나의 자동 발송 세트는 남겨야 합니다.", "error");
+    return;
+  }
+  if (!globalThis.confirm(`${current.name} 세트를 삭제할까요? 브라우저에 저장된 이 세트 내용이 삭제됩니다.`)) return;
+  state.deliverySets = state.deliverySets.filter((set) => set.id !== current.id);
+  applyDeliverySet(state.deliverySets[0]);
+  persistDeliverySets();
+  setNotice("자동 발송 세트를 삭제했습니다.", "success");
+  render();
+}
+
+function updateDeliverySetField(field, value) {
+  const current = activeDeliverySet();
+  if (!current) return;
+  current[field] = String(value || "").trim();
+  current.updated_at = new Date().toISOString();
+}
+
 function renderConnectionSetupGuide() {
   const setup = state.googleSetup || {};
   const redirectUri = setup.redirect_uri || `${apiBase || window.location.origin}/oauth/google/callback`;
@@ -777,7 +971,7 @@ function renderFlowTab() {
       <div class="panel-title">
         <div>
           <h2>단계별 메일</h2>
-          <p>각 단계에서 보낼 메일과, 발송 후 다음 메일 예약 방식을 정합니다.</p>
+          <p>자동 발송 세트별로 메일 순서와 이전 메일 기준 발송 시점을 관리합니다.</p>
         </div>
         <div class="button-row">
           <button type="button" data-action="load-flow">불러오기</button>
@@ -785,9 +979,10 @@ function renderFlowTab() {
           <button class="primary" type="button" data-action="save-flow">저장</button>
         </div>
       </div>
+      ${renderDeliverySetManager()}
       <div class="flow-help">
         <strong>메일 흐름의 역할</strong>
-        <span>명단이 퍼널 단계에 들어오면 이 화면의 순서대로 메일 내용과 다음 예약을 확인합니다. 예: 첫 메일 발송 후 3일 뒤 두 번째 메일 예약, 또는 2026-07-15에 다음 메일 예약.</span>
+        <span>첫 메일은 조건이 맞거나 승인되면 발송되고, 두 번째 메일부터는 이전 메일 발송 후 며칠 뒤 나갈지 정합니다. 세트 저장을 누르면 현재 연결 설정과 메일 단계가 이 세트에 보관됩니다.</span>
       </div>
       <div class="flow-list">
         ${
@@ -799,15 +994,71 @@ function renderFlowTab() {
     </section>`;
 }
 
+function renderDeliverySetManager() {
+  ensureDeliverySets();
+  const current = activeDeliverySet();
+  const options = state.deliverySets.map((set) => {
+    const selected = set.id === state.activeSetId ? "selected" : "";
+    const status = set.status === "paused" ? "일시정지" : "활성";
+    return `<option value="${safe(set.id)}" ${selected}>${safe(set.name)} · ${status}</option>`;
+  }).join("");
+  const stepCount = state.flowSteps.length;
+  const updated = current?.updated_at ? new Date(current.updated_at).toLocaleString("ko-KR") : "아직 저장 전";
+  return `
+    <section class="set-manager" aria-label="자동 발송 세트 관리">
+      <div class="set-manager-head">
+        <div>
+          <h3>자동 발송 세트</h3>
+          <p>행사, 상품, 고객군별로 연결 설정과 메일 흐름을 따로 저장합니다.</p>
+        </div>
+        <div class="button-row">
+          <button type="button" data-action="save-delivery-set" class="primary">세트 내용 저장</button>
+          <button type="button" data-action="new-delivery-set">새 세트</button>
+          <button type="button" data-action="duplicate-delivery-set">복제</button>
+          <button type="button" data-action="delete-delivery-set">삭제</button>
+        </div>
+      </div>
+      <div class="set-grid">
+        <label class="field">
+          <span>현재 세트</span>
+          <select data-delivery-set-select>${options}</select>
+        </label>
+        <label class="field">
+          <span>세트 이름</span>
+          <input data-delivery-set-field="name" value="${safe(current?.name || "")}" />
+        </label>
+        <label class="field">
+          <span>상태</span>
+          <select data-delivery-set-field="status">
+            <option value="active" ${current?.status === "paused" ? "" : "selected"}>활성</option>
+            <option value="paused" ${current?.status === "paused" ? "selected" : ""}>일시정지</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>설명</span>
+          <input data-delivery-set-field="description" value="${safe(current?.description || "")}" placeholder="예: 7월 세미나 참석 고객" />
+        </label>
+      </div>
+      <div class="set-summary">
+        <span>메일 단계 ${stepCount}개</span>
+        <span>캠페인 ${safe(state.config.campaign_id || "미입력")}</span>
+        <span>메일 흐름 파일 ${safe(state.config.funnel_config || "미입력")}</span>
+        <span>마지막 저장 ${safe(updated)}</span>
+      </div>
+    </section>`;
+}
+
 function renderFlowStep(step, index) {
-  const mode = flowScheduleMode(step);
+  const mode = flowArrivalMode(index);
+  const link = incomingFlowLink(index);
+  const canSelectPrevious = index > 0;
   return `
     <article class="flow-step">
       <div class="flow-head">
         <div>
-          <span class="mini-badge">${index + 1}번째 메일</span>
+          <span class="mini-badge ${link ? "ok" : ""}">${link ? "후속 메일" : "첫 메일"}</span>
           <h3>${safe(step.stage_label || step.template || `메일 ${index + 1}`)}</h3>
-          <p>${safe(flowScheduleLabel(step))}</p>
+          <p>${safe(flowScheduleLabel(step, index))}</p>
         </div>
         <div class="button-row">
           <label class="file-button">
@@ -831,22 +1082,17 @@ function renderFlowStep(step, index) {
           <input data-flow-index="${index}" data-flow-field="template" value="${safe(step.template || "")}" />
         </label>
         <label class="field">
-          <span>후속 발송</span>
-          <select data-flow-index="${index}" data-flow-field="schedule_mode" data-flow-repaint="yes">
-            <option value="none" ${mode === "none" ? "selected" : ""}>후속 메일 없음</option>
-            <option value="days" ${mode === "days" ? "selected" : ""}>이 단계 메일 발송 후 며칠 뒤</option>
-            <option value="date" ${mode === "date" ? "selected" : ""}>특정 날짜에 발송</option>
+          <span>발송 기준</span>
+          <select data-flow-arrival-mode data-flow-index="${index}">
+            <option value="start" ${mode === "start" ? "selected" : ""}>첫 메일 · 조건 충족 시</option>
+            <option value="days" ${mode === "days" ? "selected" : ""} ${canSelectPrevious ? "" : "disabled"}>이전 메일 발송 후</option>
+            <option value="date" ${mode === "date" ? "selected" : ""} ${canSelectPrevious ? "" : "disabled"}>특정 날짜에 발송</option>
           </select>
         </label>
       </div>
       <div class="flow-grid schedule-grid">
-        ${renderFlowScheduleControls(step, index, mode)}
-        <label class="field">
-          <span>다음에 보낼 메일</span>
-          <select data-flow-index="${index}" data-flow-field="next_step">
-            ${renderNextStepOptions(step, index)}
-          </select>
-        </label>
+        ${renderPreviousStepControl(index, mode)}
+        ${renderFlowScheduleControls(index, mode)}
       </div>
       <label class="field">
         <span>제목</span>
@@ -859,53 +1105,154 @@ function renderFlowStep(step, index) {
     </article>`;
 }
 
-function renderFlowScheduleControls(step, index, mode) {
+function renderPreviousStepControl(index, mode) {
+  if (mode === "start") {
+    return `
+      <label class="field">
+        <span>이전 메일</span>
+        <input value="없음 · 이 세트의 시작 메일" disabled />
+      </label>`;
+  }
+  return `
+    <label class="field">
+      <span>이전 메일</span>
+      <select data-flow-previous-step data-flow-index="${index}">
+        ${renderPreviousStepOptions(index)}
+      </select>
+    </label>`;
+}
+
+function renderFlowScheduleControls(index, mode) {
+  const link = incomingFlowLink(index);
   if (mode === "date") {
     return `
       <label class="field">
-        <span>예약 날짜</span>
-        <input type="date" data-flow-index="${index}" data-flow-field="next_send_at" value="${safe(step.next_send_at || "")}" />
+        <span>발송 날짜</span>
+        <input type="date" data-flow-index="${index}" data-flow-link-field="next_send_at" value="${safe(link?.step.next_send_at || "")}" />
       </label>`;
   }
   if (mode === "days") {
     return `
       <label class="field">
-        <span>발송 후 며칠 뒤</span>
-        <input type="number" min="0" step="1" data-flow-index="${index}" data-flow-field="next_send_after_days" value="${safe(step.next_send_after_days || "")}" />
-        <small>첫 메일이 아니라 이 단계 메일의 실제 발송일 기준입니다.</small>
+        <span>이전 메일 발송 후</span>
+        <input type="number" min="0" step="1" data-flow-index="${index}" data-flow-link-field="next_send_after_days" value="${safe(link?.step.next_send_after_days || "")}" />
+        <small>예: 3을 입력하면 이전 메일 발송 3일 뒤 이 메일이 발송됩니다.</small>
       </label>`;
   }
   return `
     <label class="field">
-      <span>예약</span>
-      <input value="후속 메일을 예약하지 않습니다." disabled />
+      <span>발송 시점</span>
+      <input value="조건이 맞거나 승인되면 첫 메일로 발송" disabled />
     </label>`;
 }
 
-function renderNextStepOptions(step, index) {
-  const current = String(step.next_step || "");
-  const options = [`<option value="" ${current ? "" : "selected"}>선택 안 함</option>`];
+function renderPreviousStepOptions(index) {
+  const link = incomingFlowLink(index);
+  const current = link ? String(link.index) : String(defaultPreviousStepIndex(index));
+  const options = [];
   state.flowSteps.forEach((candidate, candidateIndex) => {
-    if (candidateIndex === index) return;
-    const id = flowStepId(candidate, candidateIndex);
+    if (candidateIndex >= index) return;
     const label = candidate.stage_label || candidate.template || `메일 ${candidateIndex + 1}`;
-    options.push(`<option value="${safe(id)}" ${current === id ? "selected" : ""}>${safe(label)}</option>`);
+    options.push(`<option value="${candidateIndex}" ${current === String(candidateIndex) ? "selected" : ""}>${safe(candidateIndex + 1)}. ${safe(label)}</option>`);
   });
   return options.join("");
 }
 
-function flowScheduleMode(step) {
-  if (step.schedule_mode) return step.schedule_mode;
-  if (step.next_send_at) return "date";
-  if (step.next_send_after_days !== undefined && String(step.next_send_after_days).trim() !== "") return "days";
-  return "none";
+function flowStepIndexById(id) {
+  const targetId = String(id || "");
+  if (!targetId) return -1;
+  return state.flowSteps.findIndex((step, index) => flowStepId(step, index) === targetId);
 }
 
-function flowScheduleLabel(step) {
-  const mode = flowScheduleMode(step);
-  if (mode === "date" && step.next_send_at) return `${step.next_send_at}에 다음 메일 예약`;
-  if (mode === "days" && String(step.next_send_after_days || "").trim() !== "") return `이 단계 메일 발송 후 ${step.next_send_after_days}일 뒤 다음 메일 예약`;
-  return "이 단계 메일 뒤에는 자동 예약 없음";
+function outgoingScheduleMode(step, index = -1) {
+  if (!step.next_step) return "none";
+  if (index >= 0) {
+    const nextIndex = flowStepIndexById(step.next_step);
+    if (nextIndex <= index) return "none";
+  }
+  if (step.schedule_mode === "date") return "date";
+  if (step.schedule_mode === "days") return "days";
+  if (step.next_send_at) return "date";
+  if (step.next_send_after_days !== undefined && String(step.next_send_after_days).trim() !== "") return "days";
+  return "days";
+}
+
+function flowArrivalMode(index) {
+  const link = incomingFlowLink(index);
+  if (!link) return "start";
+  if (link.step.next_send_at || link.step.schedule_mode === "date") return "date";
+  return "days";
+}
+
+function flowScheduleLabel(step, index) {
+  const mode = flowArrivalMode(index);
+  const link = incomingFlowLink(index);
+  if (!link || mode === "start") return "첫 메일 · 조건이 맞거나 승인되면 발송";
+  const previousLabel = link.step.stage_label || link.step.template || `메일 ${link.index + 1}`;
+  if (mode === "date") {
+    return link.step.next_send_at
+      ? `${previousLabel} 이후 ${link.step.next_send_at}에 발송`
+      : `${previousLabel} 이후 특정 날짜에 발송`;
+  }
+  const days = String(link.step.next_send_after_days || "").trim() || "1";
+  return `${previousLabel} 발송 후 ${days}일 뒤 발송`;
+}
+
+function incomingFlowLink(index) {
+  const current = state.flowSteps[index];
+  if (!current) return null;
+  const currentId = flowStepId(current, index);
+  for (let candidateIndex = 0; candidateIndex < state.flowSteps.length; candidateIndex += 1) {
+    if (candidateIndex >= index) continue;
+    const candidate = state.flowSteps[candidateIndex];
+    if (String(candidate.next_step || "") === currentId) {
+      return { index: candidateIndex, step: candidate };
+    }
+  }
+  return null;
+}
+
+function clearIncomingFlowLinks(index, exceptIndex = -1) {
+  const current = state.flowSteps[index];
+  if (!current) return;
+  const currentId = flowStepId(current, index);
+  state.flowSteps.forEach((candidate, candidateIndex) => {
+    if (candidateIndex === exceptIndex) return;
+    if (String(candidate.next_step || "") === currentId) {
+      candidate.next_step = "";
+      candidate.next_send_after_days = "";
+      candidate.next_send_at = "";
+      candidate.schedule_mode = "none";
+      candidate.send_after_label = "후속 발송 없음";
+    }
+  });
+}
+
+function defaultPreviousStepIndex(index) {
+  if (index > 0) return index - 1;
+  return -1;
+}
+
+function ensureIncomingFlowLink(index, mode = "days", previousIndex = null) {
+  const current = state.flowSteps[index];
+  if (!current) return null;
+  const currentId = flowStepId(current, index);
+  const selectedIndex = previousIndex ?? incomingFlowLink(index)?.index ?? defaultPreviousStepIndex(index);
+  const previous = state.flowSteps[selectedIndex];
+  if (!previous || selectedIndex >= index) return null;
+  clearIncomingFlowLinks(index, selectedIndex);
+  previous.next_step = currentId;
+  previous.schedule_mode = mode;
+  if (mode === "date") {
+    previous.next_send_after_days = "";
+    previous.next_send_at = previous.next_send_at || "";
+    previous.send_after_label = previous.next_send_at ? `${previous.next_send_at}에 다음 메일` : "특정 날짜에 다음 메일";
+  } else {
+    previous.next_send_at = "";
+    previous.next_send_after_days = String(previous.next_send_after_days || "").trim() || "1";
+    previous.send_after_label = `이 메일 발송 후 ${previous.next_send_after_days}일 뒤 다음 메일`;
+  }
+  return { index: selectedIndex, step: previous };
 }
 
 function renderApprovalTab() {
@@ -1121,6 +1468,16 @@ function bindEvents() {
     });
   }
 
+  const deliverySetSelect = document.querySelector("[data-delivery-set-select]");
+  if (deliverySetSelect) {
+    deliverySetSelect.addEventListener("change", () => selectDeliverySet(deliverySetSelect.value));
+  }
+
+  for (const input of document.querySelectorAll("[data-delivery-set-field]")) {
+    input.addEventListener("input", () => updateDeliverySetField(input.dataset.deliverySetField, input.value));
+    input.addEventListener("change", () => updateDeliverySetField(input.dataset.deliverySetField, input.value));
+  }
+
   const autoSendEnabled = document.querySelector("[data-form-auto-send-enabled]");
   if (autoSendEnabled) {
     autoSendEnabled.addEventListener("change", () => {
@@ -1154,6 +1511,19 @@ function bindEvents() {
   for (const input of document.querySelectorAll("[data-flow-index]")) {
     input.addEventListener("input", () => updateFlowField(input));
     input.addEventListener("change", () => updateFlowField(input));
+  }
+
+  for (const input of document.querySelectorAll("[data-flow-arrival-mode]")) {
+    input.addEventListener("change", () => updateFlowArrivalMode(input));
+  }
+
+  for (const input of document.querySelectorAll("[data-flow-previous-step]")) {
+    input.addEventListener("change", () => updateFlowPreviousStep(input));
+  }
+
+  for (const input of document.querySelectorAll("[data-flow-link-field]")) {
+    input.addEventListener("input", () => updateFlowLinkField(input));
+    input.addEventListener("change", () => updateFlowLinkField(input));
   }
 
   for (const button of document.querySelectorAll("[data-flow-delete-index]")) {
@@ -1247,25 +1617,49 @@ async function clearContactSelection() {
 }
 
 function updateFlowField(input) {
+  if (!input.dataset.flowField) return;
   const step = state.flowSteps[Number(input.dataset.flowIndex)];
   if (!step) return;
   const field = input.dataset.flowField;
   step[field] = input.value;
-  if (field === "schedule_mode") {
-    if (input.value === "none") {
-      step.next_send_after_days = "";
-      step.next_send_at = "";
-      step.next_step = "";
-    } else if (input.value === "days") {
-      step.next_send_at = "";
-      if (!String(step.next_send_after_days || "").trim()) step.next_send_after_days = "1";
-      if (!step.next_step) step.next_step = nextFlowStepId(Number(input.dataset.flowIndex));
-    } else if (input.value === "date") {
-      step.next_send_after_days = "";
-      if (!step.next_step) step.next_step = nextFlowStepId(Number(input.dataset.flowIndex));
-    }
-  }
   if (input.dataset.flowRepaint === "yes") render();
+}
+
+function updateFlowArrivalMode(input) {
+  const index = Number(input.dataset.flowIndex);
+  const mode = input.value;
+  if (mode === "start") {
+    clearIncomingFlowLinks(index);
+  } else {
+    ensureIncomingFlowLink(index, mode);
+  }
+  render();
+}
+
+function updateFlowPreviousStep(input) {
+  const index = Number(input.dataset.flowIndex);
+  const previousIndex = Number(input.value);
+  const mode = flowArrivalMode(index) === "date" ? "date" : "days";
+  ensureIncomingFlowLink(index, mode, previousIndex);
+  render();
+}
+
+function updateFlowLinkField(input) {
+  const index = Number(input.dataset.flowIndex);
+  const field = input.dataset.flowLinkField;
+  const mode = field === "next_send_at" ? "date" : "days";
+  const link = ensureIncomingFlowLink(index, mode);
+  if (!link) return;
+  link.step[field] = input.value;
+  if (field === "next_send_after_days") {
+    link.step.next_send_at = "";
+    link.step.schedule_mode = "days";
+    link.step.send_after_label = input.value ? `이 메일 발송 후 ${input.value}일 뒤 다음 메일` : "다음 메일까지 간격 필요";
+  } else if (field === "next_send_at") {
+    link.step.next_send_after_days = "";
+    link.step.schedule_mode = "date";
+    link.step.send_after_label = input.value ? `${input.value}에 다음 메일` : "특정 날짜 선택 필요";
+  }
 }
 
 async function addFlowStep() {
@@ -1287,6 +1681,7 @@ async function addFlowStep() {
     status_after: "",
     send_after_label: "후속 발송 없음"
   });
+  if (index > 0) ensureIncomingFlowLink(index, "days", index - 1);
   state.activeTab = "flow";
   setNotice("메일 단계를 추가했습니다. 제목과 본문을 입력한 뒤 저장하세요.");
   render();
@@ -1327,6 +1722,10 @@ async function runAction(action) {
     "load-flow": loadFlow,
     "save-flow": saveFlow,
     "add-flow-step": addFlowStep,
+    "save-delivery-set": saveActiveDeliverySet,
+    "new-delivery-set": createDeliverySet,
+    "duplicate-delivery-set": duplicateDeliverySet,
+    "delete-delivery-set": deleteDeliverySet,
     "prepare-approval": prepareApproval,
     "save-approval": saveApproval,
     preview,
@@ -1380,24 +1779,7 @@ async function loadFormAutoSend() {
     const data = await api("/api/forms/auto-send");
     applyFormAutoSendResponse(data);
   } catch {
-    state.formAutoSend = {
-      enabled: false,
-      daily_limit: 20,
-      sent_today: 0,
-      remaining_today: 20,
-      followups_enabled: false,
-      followup_daily_limit: 20,
-      followup_sent_today: 0,
-      followup_remaining_today: 20,
-      followup_due_count: 0,
-      followup_due_preview: [],
-      followup_gmail_ready: false,
-      followup_ready: false,
-      followup_status_label: "확인 전",
-      followup_status_detail: "후속 메일 상태를 아직 확인하지 않았습니다.",
-      followup_blockers: [],
-      date: ""
-    };
+    state.formAutoSend = { ...defaultFormAutoSend };
   }
 }
 
@@ -1536,14 +1918,15 @@ async function saveFlow() {
     });
     state.flowSteps = data.steps || [];
     state.templates = data.templates || [];
+    await saveActiveDeliverySet({ silent: true });
     state.activeTab = "flow";
-    setNotice(messageFrom(data, "메일 흐름을 저장했습니다."), "success");
+    setNotice(messageFrom(data, "메일 흐름과 현재 자동 발송 세트를 저장했습니다."), "success");
   });
 }
 
 function normalizeFlowStepsForSave() {
   return state.flowSteps.map((step, index) => {
-    const mode = flowScheduleMode(step);
+    const mode = outgoingScheduleMode(step, index);
     const normalized = {
       ...step,
       id: flowStepId(step, index),
@@ -1554,18 +1937,18 @@ function normalizeFlowStepsForSave() {
     if (mode === "days") {
       normalized.next_send_at = "";
       normalized.next_send_after_days = String(step.next_send_after_days || "").trim();
-      if (!normalized.next_send_after_days) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 며칠 뒤 보낼지 입력하세요.`);
-      if (!normalized.next_step) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 다음에 보낼 메일을 선택하세요.`);
+      if (!normalized.next_step) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 다음 메일이 선택되지 않았습니다.`);
+      if (!normalized.next_send_after_days) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 다음 메일까지 며칠 뒤인지 입력하세요.`);
       normalized.send_after_label = normalized.next_send_after_days
-        ? `이 단계 메일 발송 후 ${normalized.next_send_after_days}일 뒤`
+        ? `다음 메일은 이 메일 발송 후 ${normalized.next_send_after_days}일 뒤`
         : "후속 발송 없음";
     } else if (mode === "date") {
       normalized.next_send_after_days = "";
       normalized.next_send_at = String(step.next_send_at || "").trim();
-      if (!normalized.next_send_at) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 예약 날짜를 선택하세요.`);
-      if (!normalized.next_step) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 다음에 보낼 메일을 선택하세요.`);
+      if (!normalized.next_step) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 다음 메일이 선택되지 않았습니다.`);
+      if (!normalized.next_send_at) throw new Error(`${normalized.stage_label || normalized.template || `메일 ${index + 1}`}: 다음 메일 발송 날짜를 선택하세요.`);
       normalized.send_after_label = normalized.next_send_at
-        ? `${normalized.next_send_at}에 발송`
+        ? `다음 메일은 ${normalized.next_send_at}에 발송`
         : "특정 날짜 선택 필요";
     } else {
       normalized.next_send_after_days = "";
@@ -2274,6 +2657,9 @@ async function boot() {
       state.backend = { connected: true, error: "", mode: "local", message: "" };
     }
     await Promise.allSettled([loadFlow(), googleStatus({ activate: false }), loadFormAutoSend()]);
+    loadDeliverySetsFromStorage();
+    if (state.deliverySets.length) applyDeliverySet(activeDeliverySet());
+    ensureDeliverySets();
     state.activeTab = "people";
     setNotice("");
   } catch (error) {

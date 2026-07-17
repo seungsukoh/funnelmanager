@@ -915,6 +915,52 @@ tbody tr:last-child td {
   gap: 14px;
 }
 
+.set-manager {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid #c9d8ec;
+  border-radius: 8px;
+  background: #f7fbff;
+}
+
+.set-manager-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.set-manager-head p {
+  margin-bottom: 0;
+  color: #5b687a;
+  line-height: 1.45;
+}
+
+.set-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 1fr) minmax(140px, 0.7fr) minmax(220px, 1.3fr);
+  gap: 10px;
+}
+
+.set-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.set-summary span {
+  min-height: 38px;
+  padding: 9px 10px;
+  border: 1px solid #d8e5f5;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #40516a;
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
 .flow-help {
   display: grid;
   gap: 4px;
@@ -1043,6 +1089,11 @@ tbody tr:last-child td {
   .connection-values {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .set-grid,
+  .set-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -1056,6 +1107,7 @@ tbody tr:last-child td {
   .settings-head,
   .connection-guide-head,
   .automation-head,
+  .set-manager-head,
   .import-review-head,
   .flow-head,
   .contact-actions {
@@ -1071,6 +1123,8 @@ tbody tr:last-child td {
   .checklist,
   .connection-steps,
   .connection-values,
+  .set-grid,
+  .set-summary,
   .flow-grid {
     grid-template-columns: 1fr;
   }
